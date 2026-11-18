@@ -28,6 +28,7 @@ h1 { margin: 0; font-size: 22pt; letter-spacing: 1px; color: ${D}; }
 .key { border: 2px solid ${B}; border-radius: 5px; padding: 4px 12px; text-align: center; min-width: 34mm; }
 .key span { display: block; font-size: 7.5pt; text-transform: uppercase; letter-spacing: .8px; color: #5d6b78; font-weight: 700; }
 .key b { font-size: 17pt; color: ${D}; letter-spacing: .5px; }
+.key .rev { font-size: 7.5pt; color: #8a5a00; text-transform: none; letter-spacing: 0; margin-top: 1px; }
 .kind { font-size: 9pt; color: #5d6b78; margin-top: 5px; }
 .parties { display: flex; gap: 12px; margin: 14px 0; }
 .box { flex: 1; border: 1px solid #bcd9ea; border-radius: 4px; padding: 8px 10px; line-height: 1.55; font-size: 9.5pt; }
@@ -73,7 +74,8 @@ footer { position: absolute; bottom: 10mm; left: 16mm; right: 16mm; text-align: 
     <div class="addr">${e(s.company_address)}<br>Tel: ${e(s.company_phone)} &nbsp;·&nbsp; BRN: ${e(s.company_brn)}<br>
     ${e(s.company_emails).split(',').map((x) => x.trim()).join(' &nbsp;·&nbsp; ')}</div></div>
   <div class="doc"><span class="badge ${label === 'COPY' ? 'copy' : ''}">${e(label)}</span><div class="dt">SALES INVOICE</div>
-    <div class="keys"><div class="key"><span>Invoice No</span><b>${inv.series}-${inv.number}</b></div>
+    <div class="keys"><div class="key"><span>Invoice No</span><b>${inv.series}-${inv.number}</b>
+      ${inv.revised_at ? `<span class="rev">Revised ${U.dayOf(inv.revised_at)}</span>` : ''}</div>
     <div class="key"><span>Date</span><b>${U.date(week.date)}</b></div></div><div class="kind">${kind}</div></div>
 </header>
 <div class="parties">

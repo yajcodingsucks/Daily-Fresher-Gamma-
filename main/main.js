@@ -19,7 +19,7 @@ let svc;
 const ALLOWED = new Set([
   'bootstrap', 'getSettings', 'saveSettings', 'listDorms', 'saveDorm', 'listProducts', 'saveProduct', 'deleteProduct',
   'nextWeekPlan', 'newWeek', 'deleteWeek', 'listWeeks', 'getWeek', 'copyLastWeek', 'setQty', 'setWeekPrice', 'setInvoiceFields',
-  'markPrinted', 'unlockWeek', 'getLog', 'listMonths', 'monthly', 'setPayment',
+  'markPrinted', 'unlockWeek', 'getLog', 'listMonths', 'monthly', 'setPayment', 'correctInvoices', 'logStatement',
 ]);
 
 function wrap(fn) {

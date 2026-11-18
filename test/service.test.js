@@ -219,3 +219,82 @@ test('products are listed A to Z, ignoring capitals and accents, with numbers in
   assert.ok(at('Du Thym') < at('Épinard') && at('Épinard') < at('Giraumon'));
   assert.ok(at('Onions') > at('Margoze') && at('Onions') < at('Patisson'));   // DF and INV mixed, by name
 });
+
+// ---------- controlled corrections (Part 3) ----------
+function printedWeekWithOrders(svc) {
+  const brin = prod(svc, 'Veg-Brin').id;   // DF, Rs 60
+  const pdt = prod(svc, 'Veg-PDT').id;     // INV, Rs 50
+  const w = svc.getWeek(svc.newWeek());    // 27.11.2026
+  const df = w.invoices.find((i) => i.series === 'DF' && i.dorm_no === 3);
+  const inv = w.invoices.find((i) => i.series === 'INV' && i.dorm_no === 3);
+  svc.setQty(df.id, brin, 10);             // 600
+  svc.setQty(inv.id, pdt, 20);             // 1000
+  svc.markPrinted([df.id, inv.id]);
+  return { w, df, inv, brin, pdt };
+}
+
+test('correcting a printed invoice needs a reason, and saves a snapshot of it before the change', () => {
+  const svc = fresh();
+  const { w, df, brin } = printedWeekWithOrders(svc);
+  const voem = prod(svc, 'Veg-Voem').id;
+  const edit = [{ invoice_id: df.id, lines: [{ product_id: brin, qty: 12, unit_price: 60 }, { product_id: voem, qty: 2, unit_price: 155 }] }];
+  assert.throws(() => svc.correctInvoices(edit, '  '), /what needs correcting/);
+  assert.strictEqual(svc.getWeek(w.week.id).invoices.find((i) => i.id === df.id).total, 600);   // nothing saved
+
+  const r = svc.correctInvoices(edit, 'Cook counted 12 kg, and 2 Voem were missing');
+  assert.deepStrictEqual(r.map((x) => [x.number, x.changed, x.before_total, x.after_total]), [[505, true, 600, 1030]]);
+  const log = svc.getLog(w.week.id).find((c) => c.action === 'corrected');
+  const detail = JSON.parse(log.detail);
+  assert.strictEqual(detail.reason, 'Cook counted 12 kg, and 2 Voem were missing');
+  assert.deepStrictEqual(detail.before, { lines: [{ product_id: brin, code: 'Veg-Brin', name: 'Bringelle', unit: 'Kg', qty: 10, unit_price: 60 }], total: 600 });
+  assert.strictEqual(detail.after.total, 1030);
+
+  const after = svc.getWeek(w.week.id).invoices.find((i) => i.id === df.id);
+  assert.strictEqual(after.total, 1030);
+  assert.strictEqual(after.original_total, 600);
+  assert.ok(after.revised_at);
+  assert.ok(after.printed_at);                         // still printed (and locked for normal typing)
+});
+
+test('a correction never changes invoice numbers, and an unchanged invoice is not logged', () => {
+  const svc = fresh();
+  const { w, df, inv, brin, pdt } = printedWeekWithOrders(svc);
+  const numbersBefore = svc.getWeek(w.week.id).invoices.map((i) => `${i.id}:${i.series}-${i.number}`);
+  const r = svc.correctInvoices([
+    { invoice_id: df.id, lines: [{ product_id: brin, qty: 10, unit_price: 60 }] },          // same as before
+    { invoice_id: inv.id, lines: [{ product_id: pdt, qty: 18, unit_price: 52 }] },
+  ], 'price was 52');
+  assert.deepStrictEqual(r.map((x) => x.changed), [false, true]);
+  const W = svc.getWeek(w.week.id);
+  assert.deepStrictEqual(W.invoices.map((i) => `${i.id}:${i.series}-${i.number}`), numbersBefore);
+  assert.strictEqual(svc.getLog(w.week.id).filter((c) => c.action === 'corrected').length, 1);
+  assert.strictEqual(W.invoices.find((i) => i.id === inv.id).total, 936);
+  assert.strictEqual(svc.nextWeekPlan().dfStart, 512);   // numbering carries on as before
+  assert.throws(() => svc.correctInvoices([{ invoice_id: inv.id, lines: [{ product_id: brin, qty: 1, unit_price: 60 }] }], 'x'), /DF invoices/);
+});
+
+test('editing is blocked in a month marked as paid', () => {
+  const svc = fresh();
+  const { w, df, brin } = printedWeekWithOrders(svc);
+  svc.setPayment('2026-11', { paid_date: '2026-12-05', amount: 1600, reference: 'CHQ 1' });
+  const msg = /November is marked as paid\. Undo paid on the Monthly page first\./;
+  assert.throws(() => svc.correctInvoices([{ invoice_id: df.id, lines: [] }], 'mistake'), msg);
+  assert.throws(() => svc.unlockWeek(w.week.id, 'mistake'), msg);
+  assert.throws(() => svc.setWeekPrice(w.week.id, brin, 70), msg);
+  const draft = w.invoices.find((i) => i.series === 'DF' && i.dorm_no === 1);
+  assert.throws(() => svc.setQty(draft.id, brin, 1), msg);
+  svc.setPayment('2026-11', null);                         // undo paid: allowed again
+  assert.strictEqual(svc.correctInvoices([{ invoice_id: df.id, lines: [] }], 'nothing delivered')[0].after_total, 0);
+});
+
+test('the monthly page knows when an invoice changed after the statement was printed', () => {
+  const svc = fresh();
+  const { df, brin } = printedWeekWithOrders(svc);
+  assert.deepStrictEqual(svc.monthly('2026-11').statement, { printed_at: null, changed_after: false });
+  svc.logStatement('2026-11', 'pdf');
+  assert.strictEqual(svc.monthly('2026-11').statement.changed_after, false);
+  svc.correctInvoices([{ invoice_id: df.id, lines: [{ product_id: brin, qty: 9, unit_price: 60 }] }], 'one kg short');
+  assert.strictEqual(svc.monthly('2026-11').statement.changed_after, true);
+  svc.logStatement('2026-11', 'print');                    // reprinted: up to date again
+  assert.strictEqual(svc.monthly('2026-11').statement.changed_after, false);
+});

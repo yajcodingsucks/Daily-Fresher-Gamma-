@@ -17,7 +17,7 @@ const API = {
 [
   'bootstrap', 'getSettings', 'saveSettings', 'listDorms', 'saveDorm', 'listProducts', 'saveProduct', 'deleteProduct',
   'nextWeekPlan', 'newWeek', 'deleteWeek', 'listWeeks', 'getWeek', 'copyLastWeek', 'setQty', 'setWeekPrice', 'setInvoiceFields',
-  'markPrinted', 'unlockWeek', 'getLog', 'listMonths', 'monthly', 'setPayment',
+  'markPrinted', 'unlockWeek', 'getLog', 'listMonths', 'monthly', 'setPayment', 'correctInvoices', 'logStatement',
 ].forEach((m) => { API[m] = (...a) => API.call(m, ...a); });
 
 API.print = (html, mode, fileName) => API.raw('print', html, mode, fileName);

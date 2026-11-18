@@ -25,7 +25,8 @@ Views.monthly = {
     main.innerHTML = `
 <div class="top">
   <div><h2>${U.monthName(M.month)} ${pay ? '<span class="pill ok">Paid</span>' : '<span class="pill wait">Unpaid</span>'}</h2>
-    <div class="sub">Weeks: ${M.weeks.map((w) => U.date(w.date).slice(0, 5)).join(' · ')}</div></div>
+    <div class="sub">Weeks: ${M.weeks.map((w) => U.date(w.date).slice(0, 5)).join(' · ')}
+      &nbsp;·&nbsp; ${M.statement.printed_at ? `Statement last printed ${U.stamp(M.statement.printed_at)}` : 'Statement not printed yet'}</div></div>
   <div class="actions">
     <select class="inp" id="pick" style="width:180px">${months.map((m) => `<option value="${m.month}" ${m.month === M.month ? 'selected' : ''}>${U.monthName(m.month)}</option>`).join('')}</select>
     <button class="btn" id="pdf">📄 Save statement PDF</button>
@@ -33,6 +34,7 @@ Views.monthly = {
     ${pay ? '<button class="btn danger" id="unpay">Undo paid</button>' : '<button class="btn p big" id="pay">✓ Mark as paid</button>'}
   </div>
 </div>
+${M.statement.changed_after ? '<div class="warnbox">⚠ An invoice changed after the statement was printed, so reprint the statement.</div>' : ''}
 <div class="stats">
   <div class="card"><span>Vegetables (DF)</span><b>Rs ${U.money(M.df_total)}</b></div>
   <div class="card"><span>Potatoes &amp; Onions (INV)</span><b>Rs ${U.money(M.inv_total)}</b></div>
@@ -58,7 +60,11 @@ Views.monthly = {
     const out = async (mode) => {
       const html = Statement.build(S, M);
       const r = await App.run(() => API.print(html, mode, `Statement ${U.monthName(M.month)}.pdf`));
-      if (r && r.done) U.toast(mode === 'pdf' ? 'PDF saved.' : 'Sent to printer.', 'ok');
+      if (r && r.done) {
+        await App.run(() => API.logStatement(M.month, mode));
+        U.toast(mode === 'pdf' ? 'PDF saved.' : 'Sent to printer.', 'ok');
+        Views.monthly.render(main);
+      }
     };
     U.$('#pdf').onclick = () => out('pdf');
     U.$('#print').onclick = () => out('print');

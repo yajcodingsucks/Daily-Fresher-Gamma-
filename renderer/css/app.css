@@ -259,3 +259,32 @@ textarea.inp { resize: vertical; min-height: 60px; }
   color: #6b4a00; border-radius: 8px; padding: 8px 14px; margin-bottom: 12px; font-size: 14px; }
 .choices { display: flex; flex-direction: column; gap: 8px; }
 .choices .btn { text-align: left; padding: 12px 16px; font-size: 15px; }
+
+/* corrections */
+.pill.corrected { background: #fff0d1; color: #8a5a00; }
+.corr { margin-top: 4px; display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
+.link { color: var(--blue); cursor: pointer; font-size: 12px; font-weight: 600; }
+.link:hover { text-decoration: underline; }
+.changes-list { max-height: 60vh; overflow-y: auto; }
+.change { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.change-head { margin-bottom: 4px; }
+table.changes { margin-top: 6px; }
+table.changes th { padding: 6px 8px; font-size: 11px; }
+table.changes td { padding: 5px 8px; }
+.edit-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+.edit-layout .table-wrap { max-height: calc(100vh - 210px); }
+.edit-grid td { padding: 5px 8px; }
+.edit-grid tr.sec td { font-size: 12px; }
+.edit-grid tr.sumrow td { background: var(--soft); color: var(--dark); font-weight: 700; }
+.edit-grid tr.sumrow .was { color: #8a5a00; font-weight: 600; }
+.edit-grid td.amt { min-width: 90px; }
+.edit-side textarea { min-height: 110px; }
+.edit-totals { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.edit-totals div { background: var(--soft); border-radius: 8px; padding: 8px 10px; }
+.edit-totals span { display: block; font-size: 11px; font-weight: 700; color: var(--muted); }
+.edit-totals b { font-size: 17px; color: var(--dark); }
+.edit-totals small { display: block; color: var(--muted); }
+.hist-week th, .hist-week td { white-space: nowrap; }
+.hist-week td:nth-child(2) { white-space: normal; min-width: 120px; }
+.hist-week td:nth-child(8) { white-space: normal; min-width: 150px; font-size: 13px; }
+.hist-week .btn.sm { padding: 4px 7px; font-size: 12px; }

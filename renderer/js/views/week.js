@@ -31,7 +31,7 @@ ${W.isLatest ? '' : `<div class="oldweek"><span>✏️ You are editing an old we
     <div class="sub">${range('DF')} &nbsp;·&nbsp; ${range('INV')}</div>
   </div>
   <div class="actions">
-    <button class="btn" id="copyLast" ${W.prev ? '' : 'disabled'}
+    <button class="btn" id="copyLast" ${W.prev && !W.paid ? '' : 'disabled'}
       title="${W.prev ? `Fill empty boxes with the orders of ${U.date(W.prev.date)}` : 'There is no previous week'}">⟲ Copy last week's orders</button>
     <button class="btn" id="preview">👁 Preview</button>
     <button class="btn p big" id="printAll">🖨 Print all</button>
@@ -40,7 +40,7 @@ ${W.isLatest ? '' : `<div class="oldweek"><span>✏️ You are editing an old we
       <div class="menu hidden" id="moreMenu">
         ${W.isLatest ? '<button data-act="next">＋ Start next week</button>' : ''}
         <button data-act="pdf">📄 Save all as PDF</button>
-        ${printed ? '<button data-act="unlock">🔓 Unlock printed invoices</button>' : ''}
+        ${printed && !W.paid ? '<button data-act="unlock">🔓 Unlock printed invoices</button>' : ''}
         ${W.isLatest && !W.everPrinted ? '<button data-act="delete" class="danger">🗑 Delete this week</button>' : ''}
       </div>
     </div>
@@ -51,7 +51,8 @@ ${W.isLatest ? '' : `<div class="oldweek"><span>✏️ You are editing an old we
   <span><i class="key df"></i>DF · Vegetables</span>
   <span><i class="hint">12</i> grey number = last week (only a hint, not saved)</span>
   <span>Enter ↓ · Tab → · Shift+Tab ←</span>
-  ${printed ? '<span>🔒 Printed invoices are locked (⋯ More → Unlock to correct)</span>' : ''}
+  ${W.paid ? `<span>🔒 ${U.monthName(W.week.date.slice(0, 7)).split(' ')[0]} is marked as paid: undo paid on the Monthly page to change it</span>`
+    : printed ? '<span>🔒 Printed invoices are locked (⋯ More → Unlock to correct)</span>' : ''}
 </div>
 <div class="table-wrap grid-wrap"><table class="grid" id="grid"></table></div>`;
 
@@ -117,7 +118,7 @@ ${W.isLatest ? '' : `<div class="oldweek"><span>✏️ You are editing an old we
       unusedCount += all.length - used.length;
       const shown = Views.week.showAll ? all : used;
       hiddenCount += all.length - shown.length;
-      const locked = W.invoices.some((i) => i.series === series && i.printed_at && i.lines.length);
+      const locked = W.paid || W.invoices.some((i) => i.series === series && i.printed_at && i.lines.length);
       const rows = shown.map((p) => {
         const price = W.prices[p.id] ?? p.price;
         const prev = W.prevPrices[p.id];
@@ -130,7 +131,7 @@ ${W.isLatest ? '' : `<div class="oldweek"><span>✏️ You are editing an old we
           const q = qty.get(`${inv.id}:${p.id}`);
           const hint = W.lastQty[`${d.dorm_id}:${p.id}`];
           return `<td class="c" data-c="${c}"><input class="q ${series.toLowerCase()} ${q ? 'has' : ''}" data-inv="${inv.id}" data-p="${p.id}"
-            data-r="${row}" data-c="${c}" value="${U.qty(q)}" placeholder="${hint ? U.qty(hint) : ''}" ${inv.printed_at ? 'disabled' : ''}
+            data-r="${row}" data-c="${c}" value="${U.qty(q)}" placeholder="${hint ? U.qty(hint) : ''}" ${inv.printed_at || W.paid ? 'disabled' : ''}
             inputmode="decimal" autocomplete="off"></td>`;
         }).join('');
         return `<tr class="row-${series}" data-p="${p.id}" data-s="${series}">
@@ -156,7 +157,7 @@ ${W.isLatest ? '' : `<div class="oldweek"><span>✏️ You are editing an old we
       <th class="col-total">Total qty</th></tr></thead>`;
 
     const vehicle = (d) => (d.DF || d.INV).vehicle;
-    const allLocked = (d) => [d.DF, d.INV].filter(Boolean).every((i) => i.printed_at);
+    const allLocked = (d) => W.paid || [d.DF, d.INV].filter(Boolean).every((i) => i.printed_at);
     const foot = `<tfoot>
       <tr class="ft ft-DF"><td class="col-item">DF total (Rs)</td><td class="col-price"></td>
         ${D.map((d, c) => `<td class="c amt" data-c="${c}" data-ft="DF:${c}"></td>`).join('')}<td class="col-total" data-ft="DF:all"></td></tr>

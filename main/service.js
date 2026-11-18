@@ -42,6 +42,18 @@ function createService(store) {
   const log = (invoiceId, action, detail) =>
     store.run('INSERT INTO change_log (at, invoice_id, action, detail) VALUES (?, ?, ?, ?)',
       [now(), invoiceId, action, detail || null]);
+  const parse = (s) => { try { return JSON.parse(s); } catch (_) { return {}; } };
+
+  // A month marked as paid can no longer be changed.
+  const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  function paidCheck(date) {
+    const month = String(date).slice(0, 7);
+    if (store.get('SELECT 1 AS x FROM payments WHERE month = ?', [month])) {
+      throw new UserError(`${MONTH_NAMES[Number(month.slice(5, 7)) - 1]} is marked as paid. Undo paid on the Monthly page first.`);
+    }
+  }
+  const weekDate = (weekId) => (store.get('SELECT date FROM weeks WHERE id = ?', [weekId]) || {}).date;
+  const invoiceDate = (invoiceId) => (store.get('SELECT w.date FROM invoices i JOIN weeks w ON w.id = i.week_id WHERE i.id = ?', [invoiceId]) || {}).date;
 
   // ---------- settings ----------
   function getSettings() {
@@ -240,10 +252,17 @@ function createService(store) {
       WHERE i.week_id = ? ORDER BY i.series DESC, d.no`, [weekId]);
     const lines = store.all(`
       SELECT l.* FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id WHERE i.week_id = ?`, [weekId]);
+    const corrections = store.all(`
+      SELECT c.invoice_id, c.at, c.detail FROM change_log c JOIN invoices i ON i.id = c.invoice_id
+      WHERE i.week_id = ? AND c.action = 'corrected' ORDER BY c.id`, [weekId]);
     for (const inv of invoices) {
       inv.lines = lines.filter((l) => l.invoice_id === inv.id);
       inv.total = round2(inv.lines.reduce((s, l) => s + round2(l.qty * l.unit_price), 0));
       inv.balance = round2(inv.total - inv.part_payment);
+      // Corrections of printed invoices: newest last. revised_at goes on reprinted copies.
+      inv.corrections = corrections.filter((c) => c.invoice_id === inv.id).map((c) => ({ at: c.at, ...parse(c.detail) }));
+      inv.revised_at = inv.corrections.length ? inv.corrections[inv.corrections.length - 1].at : null;
+      inv.original_total = inv.corrections.length && inv.corrections[0].before ? inv.corrections[0].before.total : null;
     }
 
     const prices = {};
@@ -293,6 +312,7 @@ function createService(store) {
     return store.tx(() => {
       const week = store.get('SELECT * FROM weeks WHERE id = ?', [weekId]);
       if (!week) throw new UserError('Week not found.');
+      paidCheck(week.date);
       const prev = store.get('SELECT id, date FROM weeks WHERE date < ? ORDER BY date DESC LIMIT 1', [week.date]);
       if (!prev) throw new UserError('There is no previous week to copy from.');
       const rows = store.all(`
@@ -314,7 +334,65 @@ function createService(store) {
 
   function lockedCheck(inv) {
     if (!inv) throw new UserError('Invoice not found.');
+    paidCheck(invoiceDate(inv.id));
     if (inv.printed_at) throw new UserError(`${inv.series}-${inv.number} is printed and locked. Unlock the week to make a correction.`);
+  }
+
+  // ---------- controlled corrections of old / printed invoices ----------
+  const wasPrinted = (invoiceId) => !!store.get(`
+    SELECT 1 AS x FROM invoices i WHERE i.id = ? AND (i.printed_at IS NOT NULL
+      OR EXISTS (SELECT 1 FROM change_log c WHERE c.invoice_id = i.id AND c.action = 'printed'))`, [invoiceId]);
+
+  function snapshot(invoiceId) {
+    const lines = store.all(`
+      SELECT l.product_id, p.code, p.name, p.unit, l.qty, l.unit_price
+      FROM invoice_lines l JOIN products p ON p.id = l.product_id WHERE l.invoice_id = ?`, [invoiceId])
+      .sort((a, b) => byName(a.name, b.name));
+    return { lines, total: invoiceTotal(invoiceId) };
+  }
+
+  // edits: [{ invoice_id, lines: [{ product_id, qty, unit_price }] }] — the full new contents of each
+  // invoice. Invoice numbers and printed_at never change. A printed invoice needs a reason; each change
+  // is saved in change_log as 'corrected' with snapshots of the invoice before and after.
+  function correctInvoices(edits, reason) {
+    const why = String(reason || '').trim();
+    return store.tx(() => {
+      const results = [];
+      for (const e of edits || []) {
+        const inv = store.get('SELECT * FROM invoices WHERE id = ?', [e.invoice_id]);
+        if (!inv) throw new UserError('Invoice not found.');
+        paidCheck(invoiceDate(inv.id));
+        const want = new Map();
+        for (const l of e.lines || []) {
+          const q = l.qty === '' || l.qty === null || l.qty === undefined ? 0 : round3(l.qty);
+          const pr = round2(l.unit_price);
+          if (!(q >= 0)) throw new UserError('Quantities must be numbers, 0 or more.');
+          if (!(pr >= 0)) throw new UserError('Prices must be 0 or more.');
+          if (q === 0) continue;
+          const prod = store.get('SELECT * FROM products WHERE id = ?', [l.product_id]);
+          if (!prod) throw new UserError('Item not found.');
+          if (prod.series !== inv.series) throw new UserError(`${prod.name} belongs on ${prod.series} invoices.`);
+          want.set(prod.id, { qty: q, unit_price: pr });
+        }
+        const before = snapshot(inv.id);
+        const same = before.lines.length === want.size && before.lines.every((l) => {
+          const w = want.get(l.product_id);
+          return w && w.qty === l.qty && w.unit_price === l.unit_price;
+        });
+        if (same) { results.push({ invoice_id: inv.id, series: inv.series, number: inv.number, changed: false }); continue; }
+        const printed = wasPrinted(inv.id);
+        if (printed && !why) throw new UserError(`${inv.series}-${inv.number} was printed, so please write what needs correcting.`);
+        store.run('DELETE FROM invoice_lines WHERE invoice_id = ?', [inv.id]);
+        for (const [pid, w] of want) {
+          store.run('INSERT INTO invoice_lines (invoice_id, product_id, qty, unit_price) VALUES (?, ?, ?, ?)', [inv.id, pid, w.qty, w.unit_price]);
+        }
+        const after = snapshot(inv.id);
+        if (printed) log(inv.id, 'corrected', JSON.stringify({ reason: why, before, after }));
+        results.push({ invoice_id: inv.id, series: inv.series, number: inv.number, changed: true, corrected: printed,
+          before_total: before.total, after_total: after.total });
+      }
+      return results;
+    });
   }
 
   function weekPrice(weekId, productId) {
@@ -350,6 +428,7 @@ function createService(store) {
   function setWeekPrice(weekId, productId, price) {
     const pr = round2(price);
     if (!(pr >= 0)) throw new UserError('Price must be 0 or more.');
+    paidCheck(weekDate(weekId));
     return store.tx(() => {
       const printed = store.get(`
         SELECT i.series, i.number FROM invoices i JOIN invoice_lines l ON l.invoice_id = i.id
@@ -394,6 +473,7 @@ function createService(store) {
   function unlockWeek(weekId, reason) {
     const why = String(reason || '').trim();
     if (!why) throw new UserError('Please write why the invoices need correcting.');
+    paidCheck(weekDate(weekId));
     return store.tx(() => {
       for (const inv of store.all('SELECT id FROM invoices WHERE week_id = ? AND printed_at IS NOT NULL', [weekId])) {
         store.run('UPDATE invoices SET printed_at = NULL WHERE id = ?', [inv.id]);
@@ -450,11 +530,27 @@ function createService(store) {
       return { id: w.id, date: w.date, rows: list, df_total: round2(wDf), inv_total: round2(wInv), total: round2(wDf + wInv) };
     });
     const summary = [...byDorm.values()].sort((a, b) => a.dorm_no - b.dorm_no).map((s) => ({ ...s, total: round2(s.df + s.inv) }));
+
+    // Last time this month's statement was printed or saved, and whether an invoice was corrected
+    // (or unlocked to be corrected) after that.
+    const lastPrint = store.all("SELECT id, at, detail FROM change_log WHERE action = 'statement' AND invoice_id IS NULL ORDER BY id")
+      .filter((r) => parse(r.detail).month === month).pop() || null;
+    const changedAfter = !!lastPrint && !!store.get(`
+      SELECT 1 AS x FROM change_log c JOIN invoices i ON i.id = c.invoice_id JOIN weeks w ON w.id = i.week_id
+      WHERE substr(w.date, 1, 7) = ? AND c.action IN ('corrected', 'unlocked') AND c.id > ? LIMIT 1`, [month, lastPrint.id]);
+
     return {
       month, weeks: outWeeks, summary,
+      statement: { printed_at: lastPrint ? lastPrint.at : null, changed_after: changedAfter },
       df_total: round2(dfTotal), inv_total: round2(invTotal), total: round2(dfTotal + invTotal),
       payment: store.get('SELECT * FROM payments WHERE month = ?', [month]) || null,
     };
+  }
+
+  // Record that a month's statement was printed or saved as PDF (mode: 'print' | 'pdf').
+  function logStatement(month, mode) {
+    if (!/^\d{4}-\d{2}$/.test(month)) throw new UserError('Choose a month.');
+    return store.tx(() => { log(null, 'statement', JSON.stringify({ month, mode: mode === 'pdf' ? 'pdf' : 'print' })); return true; });
   }
 
   function setPayment(month, p) {
@@ -481,7 +577,7 @@ function createService(store) {
   return {
     bootstrap, getSettings, saveSettings, listDorms, saveDorm, listProducts, saveProduct, deleteProduct,
     nextWeekPlan, newWeek, deleteWeek, listWeeks, getWeek, copyLastWeek, setQty, setWeekPrice, setInvoiceFields,
-    markPrinted, unlockWeek, getLog, listMonths, monthly, setPayment,
+    correctInvoices, markPrinted, unlockWeek, getLog, listMonths, monthly, setPayment, logStatement,
   };
 }
 
