@@ -298,3 +298,18 @@ test('the monthly page knows when an invoice changed after the statement was pri
   svc.logStatement('2026-11', 'print');                    // reprinted: up to date again
   assert.strictEqual(svc.monthly('2026-11').statement.changed_after, false);
 });
+
+test('the months list knows the weeks of each month and when its statement was last printed', () => {
+  const svc = fresh();
+  svc.newWeek(); svc.newWeek();                                  // 27.11 and 04.12
+  let nov = svc.listMonths().find((m) => m.month === '2026-11');
+  assert.deepStrictEqual(nov.week_dates, ['2026-11-27']);
+  assert.strictEqual(nov.statement_printed_at, null);
+  svc.logStatement('2026-11');
+  const log = svc.getLog(svc.listWeeks()[1].id);                 // statement entries have no invoice
+  assert.strictEqual(log.length, 0);
+  nov = svc.listMonths().find((m) => m.month === '2026-11');
+  assert.ok(nov.statement_printed_at);
+  assert.strictEqual(svc.listMonths().find((m) => m.month === '2026-12').statement_printed_at, null);
+  assert.strictEqual(svc.monthly('2026-11').statement.printed_at, nov.statement_printed_at);
+});

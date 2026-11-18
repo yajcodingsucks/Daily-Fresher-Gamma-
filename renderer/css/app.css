@@ -288,3 +288,21 @@ table.changes td { padding: 5px 8px; }
 .hist-week td:nth-child(2) { white-space: normal; min-width: 120px; }
 .hist-week td:nth-child(8) { white-space: normal; min-width: 150px; font-size: 13px; }
 .hist-week .btn.sm { padding: 4px 7px; font-size: 12px; }
+
+/* monthly */
+.stats .card.stat-gold b { color: var(--gold); }
+.stats .card.stat-gold .small { color: #8a5a00; }
+.months td { vertical-align: middle; }
+.months th, .months td:nth-child(n+2) { white-space: nowrap; }
+.stmt-layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 18px; align-items: start; }
+.stmt-layout .preview { height: calc(100vh - 165px); align-items: flex-start; }
+.stmt-side .card { margin-bottom: 12px; }
+.kv { display: flex; justify-content: space-between; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.kv span { color: var(--muted); font-size: 13px; }
+.kv b { color: var(--dark); }
+.kv.total { border-bottom: none; }
+.kv.total b { font-size: 18px; }
+.paidbox { background: #e3f6ea; color: var(--ok); border-radius: 8px; padding: 10px 12px; }
+.paidbox b { display: block; font-size: 15px; }
+.paidbox div { font-size: 13px; margin-top: 3px; }
+.paidbox.short { background: var(--warn-bg); color: #7a5200; }

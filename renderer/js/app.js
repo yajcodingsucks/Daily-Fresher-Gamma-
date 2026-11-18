@@ -69,6 +69,7 @@ const App = {
     App.back = null;
     if ((view === 'week' || view === 'invoice') && App.state && App.state.weeks.length) App.weekId = App.state.weeks[0].id;
     if (view === 'history') { Views.history.weekId = null; Views.history.edit = null; }
+    if (view === 'monthly') Views.monthly.month = null;
     App.go(view);
   },
 

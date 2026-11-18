@@ -500,8 +500,18 @@ function createService(store) {
     for (const m of months) {
       m.total = round2(m.df_total + m.inv_total);
       m.payment = store.get('SELECT * FROM payments WHERE month = ?', [m.month]) || null;
+      m.week_dates = store.all('SELECT date FROM weeks WHERE substr(date, 1, 7) = ? ORDER BY date', [m.month]).map((r) => r.date);
+      const last = lastStatementPrint(m.month);
+      m.statement_printed_at = last ? last.at : null;
     }
     return months;
+  }
+
+  // Statement prints / PDFs are logged as 'statement_printed' with the month as detail.
+  // (Older entries were 'statement' with JSON {month}; both are read.)
+  function lastStatementPrint(month) {
+    return store.all("SELECT id, at, action, detail FROM change_log WHERE action IN ('statement_printed', 'statement') AND invoice_id IS NULL ORDER BY id")
+      .filter((r) => (r.action === 'statement_printed' ? r.detail === month : parse(r.detail).month === month)).pop() || null;
   }
 
   function monthly(month) {
@@ -533,8 +543,7 @@ function createService(store) {
 
     // Last time this month's statement was printed or saved, and whether an invoice was corrected
     // (or unlocked to be corrected) after that.
-    const lastPrint = store.all("SELECT id, at, detail FROM change_log WHERE action = 'statement' AND invoice_id IS NULL ORDER BY id")
-      .filter((r) => parse(r.detail).month === month).pop() || null;
+    const lastPrint = lastStatementPrint(month);
     const changedAfter = !!lastPrint && !!store.get(`
       SELECT 1 AS x FROM change_log c JOIN invoices i ON i.id = c.invoice_id JOIN weeks w ON w.id = i.week_id
       WHERE substr(w.date, 1, 7) = ? AND c.action IN ('corrected', 'unlocked') AND c.id > ? LIMIT 1`, [month, lastPrint.id]);
@@ -547,10 +556,10 @@ function createService(store) {
     };
   }
 
-  // Record that a month's statement was printed or saved as PDF (mode: 'print' | 'pdf').
-  function logStatement(month, mode) {
+  // Record that a month's statement was printed or saved as PDF.
+  function logStatement(month) {
     if (!/^\d{4}-\d{2}$/.test(month)) throw new UserError('Choose a month.');
-    return store.tx(() => { log(null, 'statement', JSON.stringify({ month, mode: mode === 'pdf' ? 'pdf' : 'print' })); return true; });
+    return store.tx(() => { log(null, 'statement_printed', month); return true; });
   }
 
   function setPayment(month, p) {
