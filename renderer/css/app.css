@@ -71,9 +71,26 @@ td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
 tr.total td { background: var(--soft); font-weight: 700; color: var(--dark); }
 .table-wrap { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0, 0, 0, .08); overflow: auto; }
 
-/* week grid */
-.grid-wrap { max-height: calc(100vh - 225px); }
-.grid th { position: sticky; top: 0; z-index: 2; white-space: nowrap; }
+/* week grid
+   On the This Week screen the page itself does not scroll: header, tabs and warnings stay at
+   the top and the grid box fills the rest of the window, scrolling inside itself with both
+   scrollbars always visible. */
+.main:has(> .grid-wrap) { display: flex; flex-direction: column; overflow: hidden; }
+.main:has(> .grid-wrap) > * { flex: none; }
+.main:has(> .grid-wrap) > .grid-wrap { flex: 1 1 0; min-height: 120px; overflow: scroll; }
+.main:has(> .grid-wrap) .warnbox { max-height: 104px; overflow-y: auto; }
+.grid th { position: sticky; top: 0; z-index: 3; white-space: nowrap; }
+
+/* Frozen left columns: Item, then Price. Solid backgrounds so dorm columns don't show through. */
+.grid .col-item, .grid .col-price { position: sticky; z-index: 1; background: #fff; }
+.grid .col-item { left: 0; width: 170px; min-width: 170px; max-width: 170px; border-right: 1px solid var(--line); white-space: normal; }
+.grid .col-price { left: var(--item-w, 170px); border-right: 2px solid #bcd9ea; }
+.grid thead .col-item, .grid thead .col-price { z-index: 5; background: var(--soft); }
+
+/* Frozen footer rows (bottom offsets are set by Views.week.pin so the rows stack). */
+.grid tfoot td { position: sticky; z-index: 2; }
+.grid tfoot tr:first-child td { border-top: 2px solid #bcd9ea; }
+.grid tfoot .col-item, .grid tfoot .col-price { z-index: 4; }
 .grid th.dorm { text-align: center; min-width: 74px; padding: 8px 3px; }
 .grid td { padding: 5px 4px; }
 .grid th.dorm small { display: block; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--muted); font-size: 11px; }
@@ -83,7 +100,6 @@ tr.total td { background: var(--soft); font-weight: 700; color: var(--dark); }
 .grid { border-collapse: separate; border-spacing: 0; }
 .grid th.dorm { cursor: pointer; }
 .grid th.dorm:hover { background: #dff1fb; }
-.grid tfoot td { position: sticky; bottom: 0; z-index: 2; border-top: 2px solid #bcd9ea; }
 .grid tr.extra td { background: #fafcfd; }
 .grid tfoot tr.total td { background: var(--soft); }
 .q { width: 54px; padding: 6px; border: 1px solid #cfe0ea; border-radius: 6px; text-align: center; background: #fff; }

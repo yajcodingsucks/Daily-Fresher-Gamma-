@@ -8,7 +8,7 @@ Views.products = {
 
   async render(main) {
     const S = App.state;
-    const list = S.products
+    const list = [...S.products].sort(U.byProduct)
       .filter((p) => Views.products.filter === 'ALL' || p.series === Views.products.filter)
       .filter((p) => !Views.products.search || `${p.code} ${p.name}`.toLowerCase().includes(Views.products.search.toLowerCase()));
     const unitOpts = '<datalist id="units"><option>Kg</option><option>Pcs</option><option>Bundle</option><option>Box</option></datalist>';

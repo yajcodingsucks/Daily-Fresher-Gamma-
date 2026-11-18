@@ -61,7 +61,7 @@ footer { position: absolute; bottom: 10mm; left: 16mm; right: 16mm; text-align: 
     const byId = new Map(products.map((p) => [p.id, p]));
     const lines = inv.lines
       .map((l) => ({ ...l, p: byId.get(l.product_id) || { code: '?', name: '?', unit: '', sort: 0 } }))
-      .sort((a, b) => (a.p.sort - b.p.sort) || a.p.name.localeCompare(b.p.name));
+      .sort((a, b) => U.byName(a.p.name, b.p.name));
     const rows = lines.map((l, i) => `<tr><td class="n">${i + 1}</td><td>${e(l.p.code)}</td><td>${e(l.p.name)}</td>
       <td class="c">${U.qty(l.qty)}</td><td class="c">${e(l.p.unit)}</td><td class="r">${U.money(l.unit_price)}</td>
       <td class="r">${U.money(Math.round(l.qty * l.unit_price * 100) / 100)}</td></tr>`).join('');

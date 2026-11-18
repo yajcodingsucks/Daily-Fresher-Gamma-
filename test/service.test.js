@@ -131,3 +131,24 @@ test('a week that was printed can never be deleted, even after unlocking', () =>
   assert.strictEqual(svc.getWeek(w.week.id).everPrinted, true);
   assert.throws(() => svc.deleteWeek(w.week.id), /printed/);
 });
+
+test('first week can start from chosen numbers, and the next week carries on from them', () => {
+  const svc = fresh();
+  const w = svc.getWeek(svc.newWeek('2026-11-20', { dfStart: 480, invStart: 400 }));
+  assert.strictEqual(w.week.date, '2026-11-20');
+  assert.deepStrictEqual(w.invoices.filter((i) => i.series === 'DF').map((i) => i.number), [480, 481, 482, 483, 484, 485, 486, 487, 488]);
+  assert.deepStrictEqual(w.invoices.filter((i) => i.series === 'INV').map((i) => i.number), [400, 401, 402, 403, 404, 405, 406, 407, 408]);
+  const plan = svc.nextWeekPlan();
+  assert.strictEqual(plan.dfStart, 489);
+  assert.strictEqual(plan.invStart, 409);
+});
+
+test('a chosen starting number cannot reuse numbers already in the app', () => {
+  const svc = fresh();
+  svc.newWeek(); // DF 503-511
+  assert.throws(() => svc.newWeek(undefined, { dfStart: 511 }), /DF must start at 512/);
+  assert.throws(() => svc.newWeek(undefined, { invStart: 'abc' }), /whole number/);
+  const w = svc.getWeek(svc.newWeek(undefined, { dfStart: 600 }));
+  assert.strictEqual(Math.min(...w.invoices.filter((i) => i.series === 'DF').map((i) => i.number)), 600);
+  assert.strictEqual(Math.min(...w.invoices.filter((i) => i.series === 'INV').map((i) => i.number)), 363);
+});

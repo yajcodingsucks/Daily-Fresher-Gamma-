@@ -60,11 +60,11 @@ ${printed ? `<div class="lockbox"><span>🔒 Printed invoices are locked so they
     const invs = W.invoices.filter((i) => i.series === tab).sort((a, b) => a.dorm_no - b.dorm_no);
     const qty = new Map();
     for (const inv of invs) for (const l of inv.lines) qty.set(`${inv.id}:${l.product_id}`, l.qty);
-    let prods = W.products.filter((p) => p.series === tab);
+    let prods = W.products.filter((p) => p.series === tab).sort(U.byProduct);
     if (Views.week.hideEmpty) prods = prods.filter((p) => invs.some((i) => qty.has(`${i.id}:${p.id}`)));
     const seriesLocked = invs.some((i) => i.printed_at);
 
-    const head = `<thead><tr><th style="min-width:150px">Item</th><th class="r">Price (Rs)</th>
+    const head = `<thead><tr><th class="col-item">Item</th><th class="r col-price">Price (Rs)</th>
       ${invs.map((i) => `<th class="dorm" data-open="${i.dorm_no}" title="${U.esc(i.dorm_name)} — click to view invoice"><b>${i.dorm_no}</b><small>${U.esc(Views.week.short(i.dorm_name))}</small>
         <small>${i.series}-${i.number}${i.printed_at ? ' 🔒' : ''}</small></th>`).join('')}
       <th class="r">Total qty</th></tr></thead>`;
@@ -80,20 +80,36 @@ ${printed ? `<div class="lockbox"><span>🔒 Printed invoices are locked so they
           value="${U.qty(q)}" ${inv.printed_at ? 'disabled' : ''} inputmode="decimal"></td>`;
       }).join('');
       const rowQty = invs.reduce((s, inv) => s + (qty.get(`${inv.id}:${p.id}`) || 0), 0);
-      return `<tr><td class="item"><b>${U.esc(p.name)}</b><small>${U.esc(p.code)} · ${U.esc(p.unit)}${p.active ? '' : ' · inactive'}</small></td>
-        <td class="r"><input class="price" data-p="${p.id}" value="${price.toFixed(2)}" ${seriesLocked ? 'disabled' : ''} inputmode="decimal">${chg}</td>
+      return `<tr><td class="item col-item"><b>${U.esc(p.name)}</b><small>${U.esc(p.code)} · ${U.esc(p.unit)}${p.active ? '' : ' · inactive'}</small></td>
+        <td class="r col-price"><input class="price" data-p="${p.id}" value="${price.toFixed(2)}" ${seriesLocked ? 'disabled' : ''} inputmode="decimal">${chg}</td>
         ${cells}<td class="r" id="rq-${p.id}">${U.qty(rowQty) || '<span class="muted">–</span>'}</td></tr>`;
     }).join('') || `<tr><td colspan="${invs.length + 3}" class="muted c" style="padding:30px">No items. Add them in Products &amp; Prices.</td></tr>`;
 
-    const extra = `
-      <tr class="extra"><td class="muted">Vehicle</td><td></td>${invs.map((i) => `<td><input class="veh" data-inv="${i.id}" data-dorm="${i.dorm_id}"
+    // Footer rows stay pinned to the bottom of the grid: Vehicle, View, then Total last.
+    const foot = `<tfoot>
+      <tr class="extra"><td class="muted col-item">Vehicle</td><td class="col-price"></td>${invs.map((i) => `<td><input class="veh" data-inv="${i.id}" data-dorm="${i.dorm_id}"
         value="${U.esc(i.vehicle)}" ${i.printed_at ? 'disabled' : ''}></td>`).join('')}<td></td></tr>
-      <tr class="extra"><td class="muted">Invoice</td><td></td>${invs.map((i) => `<td class="c"><button class="btn sm" data-open="${i.dorm_no}">View</button></td>`).join('')}<td></td></tr>`;
-    const foot = `<tfoot><tr class="total"><td>Total (Rs)</td><td></td>${invs.map((i) => `<td class="c">${U.money(i.total)}</td>`).join('')}
+      <tr class="extra"><td class="muted col-item">Invoice</td><td class="col-price"></td>${invs.map((i) => `<td class="c"><button class="btn sm" data-open="${i.dorm_no}">View</button></td>`).join('')}<td></td></tr>
+      <tr class="total"><td class="col-item">Total (Rs)</td><td class="col-price"></td>${invs.map((i) => `<td class="c">${U.money(i.total)}</td>`).join('')}
         <td class="r">${U.money(invs.reduce((s, i) => s + i.total, 0))}</td></tr></tfoot>`;
 
-    U.$('#grid').innerHTML = head + `<tbody>${body}${extra}</tbody>` + foot;
+    U.$('#grid').innerHTML = head + `<tbody>${body}</tbody>` + foot;
+    Views.week.pin();
     Views.week.renderWarnings();
+  },
+
+  // Sticky offsets that depend on rendered sizes: the Price column sits right after the Item
+  // column, and each footer row sits on top of the rows below it.
+  pin() {
+    const grid = U.$('#grid');
+    if (!grid) return;
+    const itemW = U.$('thead .col-item', grid).getBoundingClientRect().width;
+    grid.style.setProperty('--item-w', `${itemW}px`);
+    let bottom = 0;
+    for (const tr of [...grid.tFoot.rows].reverse()) {
+      for (const td of tr.cells) td.style.bottom = `${bottom}px`;
+      bottom += tr.getBoundingClientRect().height;
+    }
   },
 
   short(name) {
@@ -233,17 +249,23 @@ ${printed ? `<div class="lockbox"><span>🔒 Printed invoices are locked so they
 
   async startNext() {
     const plan = await API.nextWeekPlan();
-    const last = plan.dfStart + plan.dormCount - 1;
-    const lastI = plan.invStart + plan.dormCount - 1;
+    const n = plan.dormCount;
     const v = await U.modal({
       title: 'Start a new week',
-      text: `This creates ${plan.dormCount * 2} invoices: <b>DF-${plan.dfStart} → DF-${last}</b> and <b>INV-${plan.invStart} → INV-${lastI}</b>.<br>
-        The date is 7 days after the last week. Change it only if the delivery day moved.`,
-      fields: [{ name: 'date', label: 'Delivery date', type: 'date', value: plan.date }],
+      text: `This creates ${n * 2} invoices, one DF and one INV for each of the ${n} dormitories.<br>
+        The date and numbers carry on from the last week. Change them only if they need to be different.`,
+      fields: [
+        { name: 'date', label: 'Delivery date', type: 'date', value: plan.date },
+        { name: 'df', label: `First DF number (DF-${plan.dfStart} → DF-${plan.dfStart + n - 1})`, type: 'number', value: plan.dfStart },
+        { name: 'inv', label: `First INV number (INV-${plan.invStart} → INV-${plan.invStart + n - 1})`, type: 'number', value: plan.invStart },
+      ],
       ok: 'Start week',
     });
     if (!v) return;
-    const id = await App.run(() => API.newWeek(v.date), 'New week started.');
+    const starts = {};
+    if (Number(v.df) !== plan.dfStart) starts.dfStart = Number(v.df);
+    if (Number(v.inv) !== plan.invStart) starts.invStart = Number(v.inv);
+    const id = await App.run(() => API.newWeek(v.date, starts), 'New week started.');
     if (id) { App.weekId = id; await App.refresh(); App.weekId = id; App.tab = 'DF'; App.go('week'); }
   },
 
@@ -268,7 +290,7 @@ ${printed ? `<div class="lockbox"><span>🔒 Printed invoices are locked so they
     const p = App.state.plan;
     main.innerHTML = `<div class="empty"><div class="card">
       <h2 style="margin-top:0">Start your first week</h2>
-      <p class="muted">The numbers carry on from your last Excel invoices. You can change the starting numbers in Settings.</p>
+      <p class="muted">The numbers carry on from your last Excel invoices. You can change the date and starting numbers in the next step.</p>
       <div class="plan"><div><span>Date</span><b>${U.date(p.date)}</b></div>
         <div><span>DF</span><b>${p.dfStart} → ${p.dfStart + p.dormCount - 1}</b></div>
         <div><span>INV</span><b>${p.invStart} → ${p.invStart + p.dormCount - 1}</b></div></div>

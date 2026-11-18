@@ -72,7 +72,10 @@ function createService(store) {
 
   // ---------- dorms & products ----------
   const listDorms = () => store.all('SELECT * FROM dorms ORDER BY no');
-  const listProducts = () => store.all('SELECT * FROM products ORDER BY series DESC, sort, name');
+  // A→Z by description (ignoring capitals and accents, "2" before "10"), DF items before INV items.
+  const byName = (a, b) => String(a).localeCompare(String(b), 'fr', { sensitivity: 'base', numeric: true });
+  const listProducts = () => store.all('SELECT * FROM products')
+    .sort((a, b) => (a.series === b.series ? 0 : a.series === 'DF' ? -1 : 1) || byName(a.name, b.name) || a.id - b.id);
 
   function saveDorm(d) {
     const name = String(d.name || '').trim();
@@ -148,7 +151,10 @@ function createService(store) {
     };
   }
 
-  function newWeek(dateOverride) {
+  // starts: optional { dfStart, invStart } to choose the first invoice number of each series.
+  // A chosen number must come after every number already used in the app; it then becomes the
+  // new base for numbering, so the following week carries on from it.
+  function newWeek(dateOverride, starts = {}) {
     return store.tx(() => {
       const plan = nextWeekPlan();
       const date = dateOverride || plan.date;
@@ -157,6 +163,17 @@ function createService(store) {
       if (lastDate && date <= lastDate) throw new UserError('The new week must come after the last week.');
       const dorms = store.all('SELECT * FROM dorms WHERE active = 1 ORDER BY no');
       if (!dorms.length) throw new UserError('There are no active dormitories.');
+      for (const [series, key, setting] of [['DF', 'dfStart', 'last_df'], ['INV', 'invStart', 'last_inv']]) {
+        const raw = starts[key];
+        if (raw === undefined || raw === null || raw === '') continue;
+        const n = Number(raw);
+        if (!Number.isInteger(n) || n < 1) throw new UserError(`The first ${series} number must be a whole number.`);
+        const used = store.get('SELECT MAX(number) AS n FROM invoices WHERE series = ?', [series]).n || 0;
+        if (n <= used) throw new UserError(`${series}-${used} is already used, so ${series} must start at ${used + 1} or higher.`);
+        plan[key] = n;
+        store.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+          [setting, JSON.stringify(n - 1)]);
+      }
       const weekId = store.run('INSERT INTO weeks (date, created_at) VALUES (?, ?)', [date, now()]).lastId;
       for (const p of store.all('SELECT id, price FROM products WHERE active = 1')) {
         store.run('INSERT INTO week_prices (week_id, product_id, price) VALUES (?, ?, ?)', [weekId, p.id, p.price]);

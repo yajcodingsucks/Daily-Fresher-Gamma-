@@ -31,6 +31,10 @@ const U = {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   },
   invNo(series, n) { return `${series}-${n}`; },
+  // A→Z by description, ignoring capitals and accents; "Pomme D'Amour 2" before "Pomme D'Amour 10".
+  byName(a, b) { return String(a).localeCompare(String(b), 'fr', { sensitivity: 'base', numeric: true }); },
+  // Products: DF before INV, then A→Z by description.
+  byProduct(a, b) { return (a.series === b.series ? 0 : a.series === 'DF' ? -1 : 1) || U.byName(a.name, b.name) || a.id - b.id; },
   $(sel, root = document) { return root.querySelector(sel); },
   $$(sel, root = document) { return [...root.querySelectorAll(sel)]; },
 
