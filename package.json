@@ -7,7 +7,7 @@
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
-    "start": "electron .",
+    "start": "node scripts/start.js",
     "test": "node --test test/*.test.js",
     "dist": "electron-builder --win portable"
   },
@@ -32,5 +32,8 @@
     "win": {
       "target": "portable"
     }
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
   }
 }
