@@ -57,10 +57,29 @@ const App = {
     return true;
   },
 
+  // Whole-app text size, remembered in settings.
+  ZOOMS: [0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4],
+  applyZoom() {
+    const z = Number(App.state.settings.text_scale) || 1;
+    if (window.bridge.setZoom) window.bridge.setZoom(z);
+    U.$$('#textSize button').forEach((b) => b.classList.toggle('on', b.dataset.z === '0' && z === 1));
+    U.$('#textSize').title = `Text size ${Math.round(z * 100)}%`;
+  },
+  async stepZoom(dir) {
+    const cur = Number(App.state.settings.text_scale) || 1;
+    let i = App.ZOOMS.reduce((best, z, k) => (Math.abs(z - cur) < Math.abs(App.ZOOMS[best] - cur) ? k : best), 2);
+    i = dir === 0 ? 2 : Math.min(App.ZOOMS.length - 1, Math.max(0, i + dir));
+    const z = App.ZOOMS[i];
+    const s = await App.run(() => API.saveSettings({ text_scale: z }));
+    if (s) { App.state.settings = s; App.applyZoom(); U.toast(`Text size ${Math.round(z * 100)}%`); }
+  },
+
   async init() {
     U.$$('#nav a').forEach((a) => a.addEventListener('click', () => App.go(a.dataset.view)));
+    U.$$('#textSize button').forEach((b) => b.addEventListener('click', () => App.stepZoom(Number(b.dataset.z))));
     try {
       await App.refresh();
+      App.applyZoom();
       const info = await API.dataInfo();
       U.$('#sideFoot').innerHTML = `v${U.esc(info.version)}<br>Data saved on this laptop`;
     } catch (err) {

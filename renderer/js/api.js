@@ -16,7 +16,7 @@ const API = {
 // Shortcuts so screens can write API.getWeek(id) etc.
 [
   'bootstrap', 'getSettings', 'saveSettings', 'listDorms', 'saveDorm', 'listProducts', 'saveProduct', 'deleteProduct',
-  'nextWeekPlan', 'newWeek', 'deleteWeek', 'listWeeks', 'getWeek', 'setQty', 'setWeekPrice', 'setInvoiceFields',
+  'nextWeekPlan', 'newWeek', 'deleteWeek', 'listWeeks', 'getWeek', 'copyLastWeek', 'setQty', 'setWeekPrice', 'setInvoiceFields',
   'markPrinted', 'unlockWeek', 'getLog', 'listMonths', 'monthly', 'setPayment',
 ].forEach((m) => { API[m] = (...a) => API.call(m, ...a); });
 

@@ -72,10 +72,9 @@ function createService(store) {
 
   // ---------- dorms & products ----------
   const listDorms = () => store.all('SELECT * FROM dorms ORDER BY no');
-  // A→Z by description (ignoring capitals and accents, "2" before "10"), DF items before INV items.
+  // A→Z by description (ignoring capitals and accents, "2" before "10").
   const byName = (a, b) => String(a).localeCompare(String(b), 'fr', { sensitivity: 'base', numeric: true });
-  const listProducts = () => store.all('SELECT * FROM products')
-    .sort((a, b) => (a.series === b.series ? 0 : a.series === 'DF' ? -1 : 1) || byName(a.name, b.name) || a.id - b.id);
+  const listProducts = () => store.all('SELECT * FROM products').sort((a, b) => byName(a.name, b.name) || a.id - b.id);
 
   function saveDorm(d) {
     const name = String(d.name || '').trim();
@@ -266,13 +265,51 @@ function createService(store) {
       GROUP BY i.dorm_id, l.product_id`, [week.date])) {
       usual[`${r.dorm_id}:${r.product_id}`] = round3(r.avg_qty);
     }
+    // Items ordered by anyone in the previous 4 weeks (the grid hides the others by default).
+    const recent = [...new Set(Object.keys(usual).map((k) => Number(k.split(':')[1])))];
+
+    // Last week's quantity per dorm + item, shown as a hint in empty boxes.
+    const lastQty = {};
+    if (prev) {
+      for (const r of store.all(`
+        SELECT i.dorm_id, l.product_id, l.qty FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id
+        WHERE i.week_id = ?`, [prev.id])) {
+        lastQty[`${r.dorm_id}:${r.product_id}`] = r.qty;
+      }
+    }
 
     return {
-      week, invoices, products, prices, prevPrices, usual,
+      week, invoices, products, prices, prevPrices, usual, recent, lastQty,
       prev: prev || null, next: next || null,
       isLatest: !!latest && latest.id === week.id,
       everPrinted: everPrinted(weekId),
+      paid: !!store.get('SELECT 1 AS x FROM payments WHERE month = ?', [week.date.slice(0, 7)]),
     };
+  }
+
+  // Fill every EMPTY box of this week's unprinted invoices with the previous week's quantity for the
+  // same dorm, series and item, at this week's price. Boxes that already have a value are never touched.
+  function copyLastWeek(weekId) {
+    return store.tx(() => {
+      const week = store.get('SELECT * FROM weeks WHERE id = ?', [weekId]);
+      if (!week) throw new UserError('Week not found.');
+      const prev = store.get('SELECT id, date FROM weeks WHERE date < ? ORDER BY date DESC LIMIT 1', [week.date]);
+      if (!prev) throw new UserError('There is no previous week to copy from.');
+      const rows = store.all(`
+        SELECT cur.id AS invoice_id, l.product_id, l.qty
+        FROM invoices cur
+        JOIN invoices old ON old.week_id = ? AND old.dorm_id = cur.dorm_id AND old.series = cur.series
+        JOIN invoice_lines l ON l.invoice_id = old.id
+        JOIN products p ON p.id = l.product_id AND p.active = 1 AND p.series = cur.series
+        WHERE cur.week_id = ? AND cur.printed_at IS NULL AND l.qty > 0
+          AND NOT EXISTS (SELECT 1 FROM invoice_lines x WHERE x.invoice_id = cur.id AND x.product_id = l.product_id)`,
+      [prev.id, weekId]);
+      for (const r of rows) {
+        store.run('INSERT INTO invoice_lines (invoice_id, product_id, qty, unit_price) VALUES (?, ?, ?, ?)',
+          [r.invoice_id, r.product_id, r.qty, weekPrice(weekId, r.product_id)]);
+      }
+      return { copied: rows.length, from: prev.date };
+    });
   }
 
   function lockedCheck(inv) {
@@ -443,7 +480,7 @@ function createService(store) {
 
   return {
     bootstrap, getSettings, saveSettings, listDorms, saveDorm, listProducts, saveProduct, deleteProduct,
-    nextWeekPlan, newWeek, deleteWeek, listWeeks, getWeek, setQty, setWeekPrice, setInvoiceFields,
+    nextWeekPlan, newWeek, deleteWeek, listWeeks, getWeek, copyLastWeek, setQty, setWeekPrice, setInvoiceFields,
     markPrinted, unlockWeek, getLog, listMonths, monthly, setPayment,
   };
 }

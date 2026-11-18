@@ -18,7 +18,7 @@ let svc;
 // Only these functions can be called from the screens.
 const ALLOWED = new Set([
   'bootstrap', 'getSettings', 'saveSettings', 'listDorms', 'saveDorm', 'listProducts', 'saveProduct', 'deleteProduct',
-  'nextWeekPlan', 'newWeek', 'deleteWeek', 'listWeeks', 'getWeek', 'setQty', 'setWeekPrice', 'setInvoiceFields',
+  'nextWeekPlan', 'newWeek', 'deleteWeek', 'listWeeks', 'getWeek', 'copyLastWeek', 'setQty', 'setWeekPrice', 'setInvoiceFields',
   'markPrinted', 'unlockWeek', 'getLog', 'listMonths', 'monthly', 'setPayment',
 ]);
 

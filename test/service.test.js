@@ -152,3 +152,70 @@ test('a chosen starting number cannot reuse numbers already in the app', () => {
   assert.strictEqual(Math.min(...w.invoices.filter((i) => i.series === 'DF').map((i) => i.number)), 600);
   assert.strictEqual(Math.min(...w.invoices.filter((i) => i.series === 'INV').map((i) => i.number)), 363);
 });
+
+test('getWeek gives last week\'s quantity per dorm and item, and recently ordered items', () => {
+  const svc = fresh();
+  const brin = prod(svc, 'Veg-Brin').id;
+  const pdt = prod(svc, 'Veg-PDT').id;
+  const w1 = svc.getWeek(svc.newWeek());
+  assert.deepStrictEqual(w1.lastQty, {});                       // no previous week yet
+  const df1 = w1.invoices.find((i) => i.series === 'DF' && i.dorm_no === 2);
+  const inv1 = w1.invoices.find((i) => i.series === 'INV' && i.dorm_no === 2);
+  svc.setQty(df1.id, brin, 12.5);
+  svc.setQty(inv1.id, pdt, 40);
+  const w2 = svc.getWeek(svc.newWeek());
+  assert.strictEqual(w2.lastQty[`${df1.dorm_id}:${brin}`], 12.5);
+  assert.strictEqual(w2.lastQty[`${inv1.dorm_id}:${pdt}`], 40);
+  assert.strictEqual(Object.keys(w2.lastQty).length, 2);
+  assert.deepStrictEqual(w2.recent.sort(), [brin, pdt].sort());
+  // the hint is never saved: this week's invoices are still empty
+  assert.ok(w2.invoices.every((i) => i.lines.length === 0));
+});
+
+test('copyLastWeek fills only empty boxes of unprinted invoices, at this week\'s prices', () => {
+  const svc = fresh();
+  const brin = prod(svc, 'Veg-Brin').id;   // DF, Rs 60
+  const voem = prod(svc, 'Veg-Voem').id;   // DF
+  const pdt = prod(svc, 'Veg-PDT').id;     // INV, Rs 50
+  const w1id = svc.newWeek();
+  assert.throws(() => svc.copyLastWeek(w1id), /no previous week/);
+  const w1 = svc.getWeek(w1id);
+  for (const inv of w1.invoices) {
+    if (inv.series === 'DF') { svc.setQty(inv.id, brin, 10); svc.setQty(inv.id, voem, 2); } else svc.setQty(inv.id, pdt, 20);
+  }
+  const w2id = svc.newWeek();
+  svc.setWeekPrice(w2id, brin, 70);
+  let w2 = svc.getWeek(w2id);
+  const belleDf = w2.invoices.find((i) => i.series === 'DF' && i.dorm_no === 1);
+  const chebelDf = w2.invoices.find((i) => i.series === 'DF' && i.dorm_no === 7);
+  const chebelInv = w2.invoices.find((i) => i.series === 'INV' && i.dorm_no === 7);
+  svc.setQty(belleDf.id, brin, 3);                     // already typed: must be kept
+  svc.setQty(chebelInv.id, pdt, 5);
+  svc.markPrinted([chebelInv.id, chebelDf.id]);        // printed: must not change
+  // 9 dorms x 3 boxes = 27, minus Belle-Vue's typed box, minus Chebel's 3 printed boxes (one already typed)
+  const r = svc.copyLastWeek(w2id);
+  assert.deepStrictEqual(r, { copied: 27 - 1 - 3, from: w1.week.date });
+  w2 = svc.getWeek(w2id);
+  const line = (invId, p) => w2.invoices.find((i) => i.id === invId).lines.find((l) => l.product_id === p);
+  assert.strictEqual(line(belleDf.id, brin).qty, 3);                   // not overwritten
+  assert.strictEqual(line(belleDf.id, voem).qty, 2);                   // empty box filled
+  assert.strictEqual(w2.invoices.find((i) => i.id === chebelDf.id).lines.length, 0);
+  assert.strictEqual(line(chebelInv.id, pdt).qty, 5);
+  const coro = w2.invoices.find((i) => i.series === 'DF' && i.dorm_no === 6);
+  assert.strictEqual(line(coro.id, brin).unit_price, 70);              // this week's price
+  assert.strictEqual(coro.total, 10 * 70 + 2 * prod(svc, 'Veg-Voem').price);
+  // running it again copies nothing
+  assert.strictEqual(svc.copyLastWeek(w2id).copied, 0);
+});
+
+test('products are listed A to Z, ignoring capitals and accents, with numbers in order', () => {
+  const svc = fresh();
+  svc.saveProduct({ code: 'T10', name: "Pomme D'Amour 10", series: 'DF', price: 1 });
+  svc.saveProduct({ code: 'T2', name: "pomme d'amour 2", series: 'DF', price: 1 });
+  svc.saveProduct({ code: 'TE', name: 'Épinard', series: 'DF', price: 1 });
+  const names = svc.listProducts().map((p) => p.name);
+  const at = (n) => names.indexOf(n);
+  assert.ok(at("pomme d'amour 2") < at("Pomme D'Amour 10"));
+  assert.ok(at('Du Thym') < at('Épinard') && at('Épinard') < at('Giraumon'));
+  assert.ok(at('Onions') > at('Margoze') && at('Onions') < at('Patisson'));   // DF and INV mixed, by name
+});

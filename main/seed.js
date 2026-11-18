@@ -17,6 +17,7 @@ const settings = {
   show_part_payment: true,
   print_copy: true,
   color: '#14a9e8',
+  text_scale: 1,          // whole-app text size (A− A A+ in the sidebar)
   // Where numbering continues from (last invoices made in Excel)
   last_df: 502,
   last_inv: 353,

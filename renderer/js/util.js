@@ -33,8 +33,8 @@ const U = {
   invNo(series, n) { return `${series}-${n}`; },
   // A→Z by description, ignoring capitals and accents; "Pomme D'Amour 2" before "Pomme D'Amour 10".
   byName(a, b) { return String(a).localeCompare(String(b), 'fr', { sensitivity: 'base', numeric: true }); },
-  // Products: DF before INV, then A→Z by description.
-  byProduct(a, b) { return (a.series === b.series ? 0 : a.series === 'DF' ? -1 : 1) || U.byName(a.name, b.name) || a.id - b.id; },
+  // Products A→Z by description.
+  byProduct(a, b) { return U.byName(a.name, b.name) || a.id - b.id; },
   $(sel, root = document) { return root.querySelector(sel); },
   $$(sel, root = document) { return [...root.querySelectorAll(sel)]; },
 
@@ -47,11 +47,12 @@ const U = {
   },
 
   // A simple pop-up. fields: [{name, label, type, value}] ; resolves to values object, or null if cancelled.
-  modal({ title, text = '', fields = [], ok = 'OK', cancel = 'Cancel', danger = false }) {
+  // text: short HTML shown in a paragraph; body: any extra HTML (lists, tables) shown under it.
+  modal({ title, text = '', body = '', fields = [], ok = 'OK', cancel = 'Cancel', danger = false, wide = false }) {
     return new Promise((resolve) => {
       const box = U.$('#modal');
-      box.innerHTML = `<div class="box">
-        <h3>${U.esc(title)}</h3>${text ? `<p>${text}</p>` : ''}
+      box.innerHTML = `<div class="box ${wide ? 'wide' : ''}">
+        <h3>${U.esc(title)}</h3>${text ? `<p>${text}</p>` : ''}${body}
         ${fields.map((f) => `<div class="field"><label>${U.esc(f.label)}</label>
           ${f.type === 'textarea'
             ? `<textarea class="inp" name="${f.name}">${U.esc(f.value ?? '')}</textarea>`
