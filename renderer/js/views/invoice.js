@@ -21,7 +21,7 @@ Views.invoice = {
 <div class="top">
   <div><h2>${U.esc(inv.dorm_name)} · ${inv.series}-${inv.number}</h2>
     <div class="sub">Week of ${U.date(W.week.date)} · ${locked ? `Printed ${U.date(inv.printed_at)} 🔒` : 'Not printed yet'}</div></div>
-  <div class="actions"><button class="btn" id="back">← Back to week</button></div>
+  <div class="actions"><button class="btn" id="back">${App.back ? '← Back to History week' : '← Back to week'}</button></div>
 </div>
 <div class="inv-layout">
   <div class="dorm-list">
@@ -64,7 +64,9 @@ Views.invoice = {
     fit();
     window.onresize = fit;
 
-    U.$('#back').onclick = () => { App.tab = series; App.go('week'); };
+    U.$('#back').onclick = () => {
+      if (App.back) { Views.history.weekId = App.back.weekId; App.back = null; App.go('history'); } else App.go('week');
+    };
     U.$$('[data-s]').forEach((b) => { b.onclick = () => { App.sel.series = b.dataset.s; App.go('invoice'); }; });
     U.$$('[data-d]').forEach((b) => { b.onclick = () => { App.sel.dormNo = Number(b.dataset.d); App.go('invoice'); }; });
 

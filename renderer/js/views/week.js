@@ -23,12 +23,11 @@ Views.week = {
     const printed = W.invoices.some((i) => i.printed_at);
 
     main.innerHTML = `
+${W.isLatest ? '' : `<div class="oldweek"><span>✏️ You are editing an old week: <b>${U.date(W.week.date)}</b></span>
+  <button class="btn sm" id="backHist">← Back to History</button></div>`}
 <div class="top">
   <div>
-    <h2><button class="icon-btn" id="prevW" ${W.prev ? '' : 'disabled'} title="Previous week">‹</button>
-      Week of ${U.date(W.week.date)}
-      <button class="icon-btn" id="nextW" ${W.next ? '' : 'disabled'} title="Next week">›</button>
-      <span id="wstatus"></span></h2>
+    <h2>Week of ${U.date(W.week.date)} <span id="wstatus"></span></h2>
     <div class="sub">${range('DF')} &nbsp;·&nbsp; ${range('INV')}</div>
   </div>
   <div class="actions">
@@ -307,8 +306,7 @@ Views.week = {
 
   bind(main) {
     const W = App.W;
-    U.$('#prevW').onclick = () => { App.weekId = W.prev.id; App.go('week'); };
-    U.$('#nextW').onclick = () => { App.weekId = W.next.id; App.go('week'); };
+    if (U.$('#backHist')) U.$('#backHist').onclick = () => { App.back = null; Views.history.weekId = W.week.id; App.go('history'); };
     U.$('#copyLast').onclick = Views.week.copyLast;
     U.$('#preview').onclick = () => {
       const first = Views.week.dorms(App.W)[0];

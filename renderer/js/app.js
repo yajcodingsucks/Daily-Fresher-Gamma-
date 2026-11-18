@@ -16,9 +16,14 @@ const App = {
     if (!App.weekId && App.state.weeks.length) App.weekId = App.state.weeks[0].id;
   },
 
+  // back: set when a screen was opened from History ({ weekId }): the invoice preview then shows
+  // "Back to History week", the week grid shows the old-week banner, and History stays highlighted.
+  back: null,
+
   async go(view) {
     App.view = view;
-    U.$$('#nav a').forEach((a) => a.classList.toggle('on', a.dataset.view === view));
+    const nav = App.back && (view === 'week' || view === 'invoice') ? 'history' : view;
+    U.$$('#nav a').forEach((a) => a.classList.toggle('on', a.dataset.view === nav));
     const main = U.$('#main');
     try {
       await Views[view].render(main);
@@ -41,7 +46,8 @@ const App = {
   },
 
   // Print or save invoices. invoices: from getWeek(); labels: ['ORIGINAL','COPY'] etc.
-  async printInvoices(W, invoices, labels, mode = 'print') {
+  // reprint: true for reprints from History, which never change printed_at or anything else.
+  async printInvoices(W, invoices, labels, mode = 'print', { reprint = false } = {}) {
     if (!invoices.length) { U.toast('Nothing to print: these invoices have no items.', 'err'); return false; }
     const html = Receipt.build(App.state.settings, W.week, invoices, W.products, labels);
     const name = invoices.length === 1
@@ -49,12 +55,21 @@ const App = {
       : `Invoices ${U.date(W.week.date)}.pdf`;
     const res = await App.run(() => API.print(html, mode, name));
     if (!res || !res.done) return false;
-    if (labels.includes('ORIGINAL')) {
+    if (!reprint && labels.includes('ORIGINAL')) {
       const ids = invoices.filter((i) => !i.printed_at).map((i) => i.id);
       if (ids.length) await App.run(() => API.markPrinted(ids));
     }
     U.toast(mode === 'pdf' ? 'PDF saved.' : 'Sent to printer.', 'ok');
     return true;
+  },
+
+  // The side menu: This Week and Invoices always show the latest week (old weeks are reached
+  // through History), and History always starts at its list of weeks.
+  navClick(view) {
+    App.back = null;
+    if ((view === 'week' || view === 'invoice') && App.state && App.state.weeks.length) App.weekId = App.state.weeks[0].id;
+    if (view === 'history') { Views.history.weekId = null; Views.history.edit = null; }
+    App.go(view);
   },
 
   // Whole-app text size, remembered in settings.
@@ -75,7 +90,7 @@ const App = {
   },
 
   async init() {
-    U.$$('#nav a').forEach((a) => a.addEventListener('click', () => App.go(a.dataset.view)));
+    U.$$('#nav a').forEach((a) => a.addEventListener('click', () => App.navClick(a.dataset.view)));
     U.$$('#textSize button').forEach((b) => b.addEventListener('click', () => App.stepZoom(Number(b.dataset.z))));
     try {
       await App.refresh();

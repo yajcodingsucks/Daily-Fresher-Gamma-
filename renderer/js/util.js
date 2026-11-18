@@ -22,6 +22,19 @@ const U = {
     const [y, m, d] = iso.slice(0, 10).split('-');
     return `${d}.${m}.${y}`;
   },
+  // "2026-11-20T04:42:00.000Z" -> "20.11 · 08:42" (local time)
+  stamp(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${p(d.getDate())}.${p(d.getMonth() + 1)} · ${p(d.getHours())}:${p(d.getMinutes())}`;
+  },
+  // local calendar date of a timestamp, as DD.MM.YYYY
+  dayOf(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+  },
   monthName(ym) {
     const [y, m] = ym.split('-').map(Number);
     return new Date(Date.UTC(y, m - 1, 1)).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
@@ -76,6 +89,26 @@ const U = {
       };
       document.addEventListener('keydown', onKey);
       box.querySelectorAll('[data-x]').forEach((b) => b.addEventListener('click', () => done(b.dataset.x === '1')));
+    });
+  },
+  // A pop-up with one big button per choice. options: [{ label, value }]; resolves to the value, or null.
+  choose(title, text, options) {
+    return new Promise((resolve) => {
+      const box = U.$('#modal');
+      box.innerHTML = `<div class="box"><h3>${U.esc(title)}</h3>${text ? `<p>${text}</p>` : ''}
+        <div class="choices">${options.map((o, i) => `<button class="btn ${i === 0 ? 'p' : ''}" data-i="${i}">${U.esc(o.label)}</button>`).join('')}</div>
+        <div class="btns"><button class="btn" data-i="-1">Cancel</button></div></div>`;
+      box.classList.remove('hidden');
+      const done = (i) => {
+        box.classList.add('hidden');
+        box.innerHTML = '';
+        document.removeEventListener('keydown', onKey);
+        resolve(i >= 0 ? options[i].value : null);
+      };
+      const onKey = (e) => { if (e.key === 'Escape') done(-1); };
+      document.addEventListener('keydown', onKey);
+      box.querySelectorAll('[data-i]').forEach((b) => b.addEventListener('click', () => done(Number(b.dataset.i))));
+      box.querySelector('[data-i="0"]').focus();
     });
   },
   confirm(title, text, ok = 'Yes', danger = false) {
