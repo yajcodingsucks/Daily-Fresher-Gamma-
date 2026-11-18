@@ -50,8 +50,8 @@ Views.week = {
 <div class="legend">
   <span><i class="key inv"></i>INV · Onions &amp; Potatoes</span>
   <span><i class="key df"></i>DF · Vegetables</span>
-  <span><i class="hint">12</i> grey = last week (only a hint, not saved)</span>
-  <span>Enter/↓ down · ↑ up · Tab right · Shift+Tab left</span>
+  <span><i class="hint">12</i> grey number = last week (only a hint, not saved)</span>
+  <span>Enter ↓ · Tab → · Shift+Tab ←</span>
   ${printed ? '<span>🔒 Printed invoices are locked (⋯ More → Unlock to correct)</span>' : ''}
 </div>
 <div class="table-wrap grid-wrap"><table class="grid" id="grid"></table></div>`;
