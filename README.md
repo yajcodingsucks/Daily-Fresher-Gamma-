@@ -79,11 +79,29 @@ npm start       # opens the app
 npm test        # checks the business rules (numbering, totals, locking, corrections, statements)
 ```
 
-Make a single `.exe` you can copy to any Windows laptop:
+Build the Windows app (64-bit). It uses the Electron already in `node_modules`, nothing is downloaded again:
 
 ```bash
-npm run dist    # creates dist/Daily Fresher Invoices <version>.exe
+npm run dist            # both files below
+npm run dist:setup      # dist/Daily Fresher Invoices Setup.exe   (installer, recommended)
+npm run dist:portable   # dist/Daily Fresher Invoices.exe         (single .exe, runs without installing)
 ```
+
+The installer installs for the current user only (no admin password), lets you choose the folder, and adds a
+desktop and Start menu shortcut. The icon is `build/icon.ico`. `dist/` is not stored in Git.
+
+## Install on another laptop
+
+1. Copy **`dist\Daily Fresher Invoices Setup.exe`** to a pendrive and plug it into the other laptop.
+2. **To bring the existing data** (weeks, invoices, settings): also copy the whole folder
+   `Documents\Daily Fresher Invoices` from this laptop, and paste it into `Documents` on the other laptop
+   **before starting the app there for the first time**. (Without it, the app starts with the starting data.)
+3. Run the Setup `.exe` from the pendrive. Windows may show **"Windows protected your PC"** because the app is not
+   signed: click **More info → Run anyway**. Choose "Only for me", keep or change the folder, and click Install.
+4. Start **Daily Fresher Invoices** from the desktop or Start menu shortcut.
+
+Data always stays in `Documents\Daily Fresher Invoices` on each laptop, so installing or updating the app never
+touches it. To update, run the newer Setup `.exe` over the old one.
 
 ## Where the data is
 

@@ -9,7 +9,9 @@
   "scripts": {
     "start": "node scripts/start.js",
     "test": "node --test test/*.test.js",
-    "dist": "electron-builder --win portable"
+    "dist": "electron-builder --win nsis portable --x64",
+    "dist:setup": "electron-builder --win nsis --x64",
+    "dist:portable": "electron-builder --win portable --x64"
   },
   "dependencies": {
     "sql.js": "^1.12.0",
@@ -22,17 +24,45 @@
   "build": {
     "appId": "mu.dailyfresher.invoices",
     "productName": "Daily Fresher Invoices",
+    "copyright": "Daily Fresher Ltd",
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "asar": true,
     "files": [
       "main/**/*",
       "renderer/**/*",
       "package.json",
-      "node_modules/sql.js/dist/sql-wasm.js",
-      "node_modules/sql.js/dist/sql-wasm.wasm",
-      "node_modules/sql.js/package.json",
-      "node_modules/xlsx/**/*"
+      "!node_modules/sql.js/dist/*.zip",
+      "!node_modules/sql.js/dist/sql-asm*",
+      "!node_modules/sql.js/dist/*debug*",
+      "!node_modules/sql.js/dist/*browser*",
+      "!node_modules/sql.js/dist/*inline*",
+      "!node_modules/sql.js/dist/worker*"
     ],
     "win": {
-      "target": "portable"
+      "icon": "build/icon.ico",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Daily Fresher Invoices",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "artifactName": "Daily Fresher Invoices Setup.exe"
+    },
+    "portable": {
+      "artifactName": "Daily Fresher Invoices.exe"
     }
   },
   "allowScripts": {
