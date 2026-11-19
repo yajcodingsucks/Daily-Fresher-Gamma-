@@ -10,8 +10,9 @@ const App = {
 
   async refresh() {
     App.state = await API.bootstrap();
-    document.documentElement.style.setProperty('--blue', App.state.settings.color || '#14a9e8');
-    document.documentElement.style.setProperty('--dark', Receipt.darken(App.state.settings.color || '#14a9e8'));
+    const color = App.state.settings.receipt_format.color;
+    document.documentElement.style.setProperty('--blue', color);
+    document.documentElement.style.setProperty('--dark', Receipt.darken(color));
     if (App.weekId && !App.state.weeks.some((w) => w.id === App.weekId)) App.weekId = null;
     if (!App.weekId && App.state.weeks.length) App.weekId = App.state.weeks[0].id;
   },
@@ -53,7 +54,7 @@ const App = {
     const name = invoices.length === 1
       ? `${invoices[0].series}-${invoices[0].number}.pdf`
       : `Invoices ${U.date(W.week.date)}.pdf`;
-    const res = await App.run(() => API.print(html, mode, name));
+    const res = await App.run(() => API.print(html, mode, name, Receipt.paper(App.state.settings)));
     if (!res || !res.done) return false;
     if (!reprint && labels.includes('ORIGINAL')) {
       const ids = invoices.filter((i) => !i.printed_at).map((i) => i.id);
@@ -65,7 +66,9 @@ const App = {
 
   // The side menu: This Week and Invoices always show the latest week (old weeks are reached
   // through History), and History always starts at its list of weeks.
-  navClick(view) {
+  async navClick(view) {
+    // Settings asks first when it has unsaved changes.
+    if (App.view === 'settings' && !(await Views.settings.canLeave())) return;
     App.back = null;
     if ((view === 'week' || view === 'invoice') && App.state && App.state.weeks.length) App.weekId = App.state.weeks[0].id;
     if (view === 'history') { Views.history.weekId = null; Views.history.edit = null; }

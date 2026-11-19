@@ -1,6 +1,8 @@
 // Starting data, taken from Receipt Format02.xlsx (week of 20.11.2026).
 // Only used the first time the app runs; everything can be edited in the app afterwards.
 
+const { DEFAULT_RECEIPT, DEFAULT_STATEMENT } = require('./formats');
+
 const settings = {
   company_name: 'DAILY FRESHER LTD',
   company_tagline: 'Dealer in Local and Imported Vegetables & Fruits',
@@ -9,14 +11,11 @@ const settings = {
   company_emails: 'dailyfresher@outlook.com, oorvi28@gmail.com',
   company_brn: 'C22188745',
   customer_name: 'GAMMA CONSTRUCTION LTD',
-  note: 'Note: Goods once sold and delivered are not refundable.',
-  acknowledgment: 'Acknowledgment: all goods are received in good condition.',
-  signature_labels: ['Driver Signature', 'Received By Cook', 'Signature', 'Signature'],
-  footer_text: 'Payment due monthly · Thank you for your business',
-  show_footer: true,
-  show_part_payment: true,
-  print_copy: true,
-  color: '#14a9e8',
+  // Receipt and statement look (Settings → Receipt format / Statement format). These replace the
+  // old keys color, note, acknowledgment, signature_labels, footer_text, show_footer,
+  // show_part_payment and print_copy, which are moved in on first run (see formats.js).
+  receipt_format: DEFAULT_RECEIPT,
+  statement_format: DEFAULT_STATEMENT,
   text_scale: 1,          // whole-app text size (A− A A+ in the sidebar)
   // Where numbering continues from (last invoices made in Excel)
   last_df: 502,

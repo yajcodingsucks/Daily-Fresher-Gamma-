@@ -47,7 +47,7 @@ Views.history = {
     App.go('invoice');
   },
 
-  labelsFor() { return App.state.settings.print_copy ? ['ORIGINAL', 'COPY'] : ['ORIGINAL']; },
+  labelsFor() { return Receipt.labels(App.state.settings); },
 
   // Reprint: choose Original + Copy / Original only / Copy only. Never changes printed_at.
   async reprint(W, invoices, what) {

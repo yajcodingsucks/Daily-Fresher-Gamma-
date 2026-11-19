@@ -403,7 +403,7 @@ ${W.isLatest ? '' : `<div class="oldweek"><span>✏️ You are editing an old we
     const ordered = [...W.invoices].sort((a, b) => (a.dorm_no - b.dorm_no) || (a.series === 'DF' ? -1 : 1));
     const withItems = ordered.filter((i) => i.lines.length);
     if (!withItems.length) { U.toast('Nothing to print yet: every invoice is empty.', 'err'); return; }
-    const labels = App.state.settings.print_copy ? ['ORIGINAL', 'COPY'] : ['ORIGINAL'];
+    const labels = Receipt.labels(App.state.settings);
     const pages = withItems.length * labels.length;
     const sum = (s) => W.invoices.filter((i) => i.series === s).reduce((t, i) => t + i.total, 0);
     const w = Views.week.warnings();

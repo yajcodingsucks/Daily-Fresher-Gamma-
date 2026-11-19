@@ -1,9 +1,13 @@
 // The printed monthly statement for Gamma Construction (A4, flows onto extra pages if needed).
+// Its look comes from settings.statement_format (Settings → Statement format).
 
 const Statement = {
   build(s, m) {
     const e = U.esc;
-    const B = s.color || '#14a9e8';
+    const f = s.statement_format;
+    const B = f.color;
+    const logo = f.logo && s.receipt_format.logo ? `<img class="logo" src="${s.receipt_format.logo}" alt="">` : '';
+    const title = e(f.title.trim() || 'Monthly Statement');
     const D = Receipt.darken(B);
     const money = U.money;
     const weekDays = m.weeks.map((w) => Number(w.date.slice(8, 10)));
@@ -23,15 +27,22 @@ const Statement = {
     const sumRows = m.summary.map((r) => `<tr><td>${e(r.dorm)}</td><td class="c">${r.weeks}</td>
       <td class="r">${money(r.df)}</td><td class="r">${money(r.inv)}</td><td class="r"><b>${money(r.total)}</b></td></tr>`).join('');
 
-    const head = `<div class="head"><div><div class="co">${e(s.company_name)}</div><div class="tag">${e(s.company_tagline)}</div>
+    const company = `<div class="co">${e(s.company_name)}</div><div class="tag">${e(s.company_tagline)}</div>
       <div class="ad">${e(s.company_address)} · Tel: ${e(s.company_phone)} · BRN: ${e(s.company_brn)}<br>
-      ${e(s.company_emails).split(',').map((x) => x.trim()).join(' · ')}</div></div>
-      <div class="rt"><div class="dt">MONTHLY STATEMENT</div><div class="key"><span>Period</span><b>${U.monthName(m.month)}</b></div></div></div>
+      ${e(s.company_emails).split(',').map((x) => x.trim()).join(' · ')}</div>`;
+    const head = `<div class="head"><div>${logo ? `<div class="brand">${logo}<div>${company}</div></div>` : company}</div>
+      <div class="rt"><div class="dt">${title}</div><div class="key"><span>Period</span><b>${U.monthName(m.month)}</b></div></div></div>
       <div class="to"><b>${e(s.customer_name)}</b> — Dormitories · Weeks of ${daysText} ${U.monthName(m.month)}</div>`;
 
     const pay = m.payment
       ? `Date: <b>${U.date(m.payment.paid_date)}</b><br><br>Amount: <b>Rs ${money(m.payment.amount)}</b><br><br>Cheque / Ref: <b>${e(m.payment.reference || '—')}</b>`
       : 'Date: ____________________<br><br>Amount: Rs ________________<br><br>Cheque / Ref: ______________';
+
+    // After the summary (or after the main table when there is no summary page).
+    const closing = `${f.show_payment ? `<div class="pay"><div class="box"><div class="lbl">Amount due for ${U.monthName(m.month)}</div><div class="big">Rs ${money(m.total)}</div></div>
+<div class="box"><div class="lbl">Payment received</div>${pay}</div></div>` : ''}
+<div class="sigs"><div><i></i>For ${e(s.company_name)}</div><div><i></i>Received by (${e(s.customer_name)})</div></div>
+${f.footer.trim() ? `<div class="foot">${e(f.footer)}</div>` : ''}`;
 
     const css = `
 @page { size: A4; margin: 11mm 14mm; }
@@ -40,7 +51,10 @@ body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #1a2430; fon
 .head { display: flex; justify-content: space-between; border-bottom: 3px solid ${B}; padding-bottom: 7px; }
 .co { font-size: 18pt; font-weight: 800; color: ${D}; } .tag { color: ${B}; font-weight: 700; font-size: 7.5pt; text-transform: uppercase; }
 .ad { font-size: 8pt; color: #5d6b78; margin-top: 3px; line-height: 1.45; }
-.rt { text-align: right; } .dt { font-weight: 800; font-size: 12pt; letter-spacing: .5px; margin-bottom: 4px; }
+.rt { text-align: right; } .dt { font-weight: 800; font-size: 12pt; letter-spacing: .5px; margin-bottom: 4px; text-transform: uppercase; }
+.brand { display: flex; gap: 10px; align-items: flex-start; } .logo { height: 15mm; width: auto; max-width: 40mm; object-fit: contain; }
+.foot { margin-top: 18px; padding-top: 5px; border-top: 1px solid #dbe9f1; text-align: center; font-size: 8pt; color: #8996a2; }
+.close { margin-top: 6px; }
 .key { display: inline-block; border: 2px solid ${B}; border-radius: 5px; padding: 2px 12px; text-align: center; }
 .key span { display: block; font-size: 7pt; font-weight: 700; color: #5d6b78; text-transform: uppercase; } .key b { font-size: 13pt; color: ${D}; }
 .to { margin: 7px 0; } .cards { display: flex; gap: 8px; margin-bottom: 7px; }
@@ -71,15 +85,12 @@ ${head}
 <tbody>${rows}</tbody>
 <tfoot><tr><td colspan="3">MONTH TOTAL</td><td class="r">${money(m.df_total)}</td><td></td><td class="r">${money(m.inv_total)}</td>
   <td class="r">${money(m.total)}</td></tr></tfoot></table>
-<div class="p2">${head}
+${f.show_summary ? `<div class="p2">${head}
 <h3>Summary by dormitory</h3>
 <table><thead><tr><th>Dormitory</th><th class="c">Weeks</th><th class="r">Vegetables (Rs)</th><th class="r">Pot. &amp; Onions (Rs)</th>
   <th class="r">Total (Rs)</th></tr></thead><tbody>${sumRows}</tbody>
 <tfoot><tr><td>TOTAL</td><td></td><td class="r">${money(m.df_total)}</td><td class="r">${money(m.inv_total)}</td>
   <td class="r">${money(m.total)}</td></tr></tfoot></table>
-<div class="pay"><div class="box"><div class="lbl">Amount due for ${U.monthName(m.month)}</div><div class="big">Rs ${money(m.total)}</div></div>
-<div class="box"><div class="lbl">Payment received</div>${pay}</div></div>
-<div class="sigs"><div><i></i>For ${e(s.company_name)}</div><div><i></i>Received by (${e(s.customer_name)})</div></div>
-</div></body></html>`;
+${closing}</div>` : `<div class="close">${closing}</div>`}</body></html>`;
   },
 };

@@ -4,7 +4,7 @@ const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 contextBridge.exposeInMainWorld('bridge', {
   call: (method, ...args) => ipcRenderer.invoke('api', method, ...args),
-  print: (html, mode, fileName) => ipcRenderer.invoke('print', html, mode, fileName),
+  print: (html, mode, fileName, paper) => ipcRenderer.invoke('print', html, mode, fileName, paper),
   dataInfo: () => ipcRenderer.invoke('dataInfo'),
   backupNow: () => ipcRenderer.invoke('backupNow'),
   restoreBackup: () => ipcRenderer.invoke('restoreBackup'),

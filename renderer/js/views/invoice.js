@@ -8,6 +8,8 @@ Views.invoice = {
     const W = await API.getWeek(App.weekId);
     App.W = W;
     const S = App.state.settings;
+    const F = S.receipt_format;
+    const both = Receipt.labels(S);
     const series = App.sel.series;
     const list = W.invoices.filter((i) => i.series === series).sort((a, b) => a.dorm_no - b.dorm_no);
     const inv = (App.sel.number && list.find((i) => i.number === App.sel.number))
@@ -35,7 +37,7 @@ Views.invoice = {
   <div class="inv-side">
     <div class="card">
       <h3>Print</h3>
-      <button class="btn p" id="pBoth" style="width:100%;margin-bottom:8px">🖨 ${S.print_copy ? 'Original + Copy' : 'Print'}</button>
+      <button class="btn p" id="pBoth" style="width:100%;margin-bottom:8px">🖨 ${both.length === 2 ? 'Original + Copy' : 'Print'}</button>
       <button class="btn" id="pOrig" style="width:100%;margin-bottom:8px">Original only</button>
       <button class="btn" id="pCopy" style="width:100%;margin-bottom:8px">Copy only</button>
       <button class="btn" id="pDorm" style="width:100%;margin-bottom:8px">This dorm: DF + INV</button>
@@ -44,7 +46,7 @@ Views.invoice = {
     <div class="card">
       <h3>Details</h3>
       <div class="field"><label>Vehicle No</label><input class="inp" id="veh" value="${U.esc(inv.vehicle)}" ${locked ? 'disabled' : ''}></div>
-      ${S.show_part_payment ? `<div class="field"><label>Part payment (Rs)</label>
+      ${F.show.part_payment ? `<div class="field"><label>Part payment (Rs)</label>
         <input class="inp" id="pp" value="${inv.part_payment ? inv.part_payment.toFixed(2) : ''}" ${locked ? 'disabled' : ''} inputmode="decimal"></div>` : ''}
       <div class="small muted">Quantities are changed on This Week.</div>
     </div>
@@ -52,14 +54,17 @@ Views.invoice = {
 </div>`;
 
     const frame = U.$('#frame');
-    frame.srcdoc = Receipt.build(S, W.week, [inv], W.products, ['ORIGINAL']);
+    Receipt.show(frame, Receipt.build(S, W.week, [inv], W.products, ['ORIGINAL'], { script: false }));
+    const [pw, ph] = Receipt.pagePx(F);
+    frame.style.width = `${pw}px`;
+    frame.style.height = `${ph}px`;
     const fit = () => {
       const pv = U.$('#pv');
       if (!pv) return;
-      const scale = Math.min(1, (pv.clientWidth - 40) / 794);
+      const scale = Math.min(1, (pv.clientWidth - 40) / pw);
       frame.style.transform = `scale(${scale})`;
-      frame.style.marginBottom = `${(scale - 1) * 1123}px`;
-      frame.style.marginLeft = frame.style.marginRight = `${((scale - 1) * 794) / 2}px`;
+      frame.style.marginBottom = `${(scale - 1) * ph}px`;
+      frame.style.marginLeft = frame.style.marginRight = `${((scale - 1) * pw) / 2}px`;
     };
     fit();
     window.onresize = fit;
@@ -71,7 +76,6 @@ Views.invoice = {
     U.$$('[data-d]').forEach((b) => { b.onclick = () => { App.sel.dormNo = Number(b.dataset.d); App.go('invoice'); }; });
 
     const after = async (ok) => { if (ok) { await App.refresh(); App.go('invoice'); } };
-    const both = S.print_copy ? ['ORIGINAL', 'COPY'] : ['ORIGINAL'];
     U.$('#pBoth').onclick = async () => after(await App.printInvoices(W, [inv], both));
     U.$('#pOrig').onclick = async () => after(await App.printInvoices(W, [inv], ['ORIGINAL']));
     U.$('#pCopy').onclick = async () => after(await App.printInvoices(W, [inv], ['COPY']));

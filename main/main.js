@@ -43,7 +43,9 @@ ipcMain.handle('api', (_e, method, ...args) => wrap(() => {
 
 // ---- printing ----
 // html: a full HTML document. mode: 'print' (opens the Windows print dialog) or 'pdf' (save a PDF file).
-ipcMain.handle('print', (_e, html, mode, fileName) => wrap(async () => {
+// paper: 'A4' (default), 'A5' or 'Letter', from the receipt format.
+ipcMain.handle('print', (_e, html, mode, fileName, paper) => wrap(async () => {
+  const pageSize = ['A4', 'A5', 'Letter'].includes(paper) ? paper : 'A4';
   const tmp = path.join(os.tmpdir(), `daily-fresher-print-${Date.now()}.html`);
   fs.writeFileSync(tmp, html, 'utf8');
   const pw = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
@@ -55,13 +57,13 @@ ipcMain.handle('print', (_e, html, mode, fileName) => wrap(async () => {
         filters: [{ name: 'PDF', extensions: ['pdf'] }],
       });
       if (canceled || !filePath) return { done: false };
-      const pdf = await pw.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { marginType: 'none' } });
+      const pdf = await pw.webContents.printToPDF({ pageSize, printBackground: true, margins: { marginType: 'none' } });
       fs.writeFileSync(filePath, pdf);
       shell.openPath(filePath);
       return { done: true, filePath };
     }
     const done = await new Promise((resolve) => {
-      pw.webContents.print({ silent: false, printBackground: true, pageSize: 'A4', margins: { marginType: 'none' } },
+      pw.webContents.print({ silent: false, printBackground: true, pageSize, margins: { marginType: 'none' } },
         (success) => resolve(success));
     });
     return { done };

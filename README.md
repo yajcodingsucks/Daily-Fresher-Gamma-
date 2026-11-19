@@ -5,7 +5,7 @@ Desktop app (Electron + SQLite) for Daily Fresher Ltd's weekly deliveries to the
 - **DF** invoices = vegetables, **INV** invoices = onions & potatoes, one of each per dormitory per week (9 dorms → 18 invoices).
 - Invoice numbers and dates are filled in automatically (last week + 7 days, numbers carry on with no gaps).
   When starting a week you can change the date and the first DF / INV number.
-- Prints A4 invoices as **Original + Copy**, or saves them as PDF.
+- Prints invoices as **Original + Copy** (A4, A5 or Letter), or saves them as PDF. The look is set in *Settings → Receipt format*.
 - Monthly statement for Gamma (per week, per dorm, totals) and "mark as paid".
 - Works fully offline. Data is saved on the laptop, with automatic backups.
 
@@ -36,6 +36,17 @@ If the month is marked as paid, nothing in it can be changed until you undo paid
 
 **Monthly** — the statement. The app remembers when it was printed and warns if an invoice changed after that,
 so you know to reprint it.
+
+**Settings** — tabs: *Company* · *Customer & numbering* · *Dormitories* · *Receipt format* · *Statement format* · *Backups*.
+- **Receipt format**: options on the left, a live preview on the right (Original / Copy, DF / INV, 🖨 Test print — print or
+  PDF, nothing is marked as printed). Choose a layout (*Modern blue*, *Classic (Excel)*, *Simple B&W*), colour, logo
+  (PNG/JPG up to 1 MB), text size, what is shown (badge, emails, BRN, delivery box, vehicle, row numbers, part payment,
+  amount in words, signatures, acknowledgment, footer, COPY watermark), the table columns and their order (drag ⋮⋮),
+  the wording, 0–6 signature lines, paper (A4 / A5 / Letter), margins, Original only or Original + Copy, and empty rows.
+  Long invoices are kept on one page by making the rows a little lower. *Reset to default* puts back the original design.
+- **Statement format**: colour, logo on/off, title and footer, and whether to print the summary-by-dorm page and the
+  payment boxes, with a live preview of the latest month.
+- Every print uses the current format, old invoices too. The app asks before leaving a tab with unsaved changes.
 
 **A− A A+** at the bottom of the menu makes all text smaller or bigger (remembered).
 
@@ -76,12 +87,13 @@ main/                 "backend" – runs in Node.js
   service.js          ALL business rules: numbering, dates, prices, totals, locking, corrections, statements
   schema.js           database tables (+ a trigger that keeps onions/potatoes off DF invoices)
   seed.js             starting data (dorms, items, prices, last numbers)
+  formats.js          receipt / statement format: defaults, checks, and moving the old settings keys in
   store.js            small wrapper around SQLite (sql.js in the app, node:sqlite in tests)
   backup.js           backup copies of the database file
 renderer/             "frontend" – the screens
   index.html, css/app.css
   js/app.js           switches between screens
-  js/receipt.js       the printed A4 invoice
+  js/receipt.js       the printed invoice: three templates built from shared pieces
   js/statement.js     the printed monthly statement
   js/views/*.js       This Week, Invoices, Products & Prices, History, Monthly, Settings
 test/
@@ -92,7 +104,11 @@ test/
 The screens never touch the database directly — they ask `service.js`, which decides what is allowed.
 
 Audit trail: everything sensitive is written to the `change_log` table — `printed`, `unlocked` (with the reason),
-`corrected` (JSON with the reason and the invoice before and after) and `statement` (each statement print / PDF).
+`corrected` (JSON with the reason and the invoice before and after) and `statement_printed` (each statement print / PDF).
+
+The receipt and statement look are stored in the `settings` table as JSON (`receipt_format`, `statement_format`).
+Older databases kept them in separate keys (`color`, `note`, `print_copy`, ...); these are moved in automatically on
+first run, so printed invoices look exactly the same until the format is changed.
 
 `scripts/start.js` starts Electron for `npm start`; it clears `ELECTRON_RUN_AS_NODE`, which some terminals
 (e.g. VS Code's) set and which would stop the window from opening.

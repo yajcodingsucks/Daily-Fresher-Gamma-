@@ -3,6 +3,7 @@
 
 const schema = require('./schema');
 const seed = require('./seed');
+const formats = require('./formats');
 
 const SETTING_KEYS = Object.keys(seed.settings);
 const round2 = (x) => Math.round((Number(x) + Number.EPSILON) * 100) / 100;
@@ -39,6 +40,23 @@ function createService(store) {
     });
   }
 
+  // Older databases kept the receipt look in separate keys (color, note, print_copy, ...).
+  // Move them into receipt_format / statement_format once, then remove the old keys.
+  if (!store.get("SELECT 1 AS x FROM settings WHERE key = 'receipt_format'")) {
+    store.tx(() => {
+      const old = {};
+      for (const r of store.all('SELECT key, value FROM settings')) {
+        if (formats.OLD_KEYS.includes(r.key)) { try { old[r.key] = JSON.parse(r.value); } catch (_) { /* skip */ } }
+      }
+      const { receipt, statement } = formats.fromOldKeys(old);
+      const put = (k, v) => store.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        [k, JSON.stringify(v)]);
+      put('receipt_format', receipt);
+      if (!store.get("SELECT 1 AS x FROM settings WHERE key = 'statement_format'")) put('statement_format', statement);
+      for (const k of formats.OLD_KEYS) store.run('DELETE FROM settings WHERE key = ?', [k]);
+    });
+  }
+
   const log = (invoiceId, action, detail) =>
     store.run('INSERT INTO change_log (at, invoice_id, action, detail) VALUES (?, ?, ?, ?)',
       [now(), invoiceId, action, detail || null]);
@@ -58,13 +76,21 @@ function createService(store) {
   // ---------- settings ----------
   function getSettings() {
     const out = { ...seed.settings };
-    for (const r of store.all('SELECT key, value FROM settings')) out[r.key] = JSON.parse(r.value);
+    for (const r of store.all('SELECT key, value FROM settings')) {
+      if (SETTING_KEYS.includes(r.key)) out[r.key] = JSON.parse(r.value);
+    }
+    out.receipt_format = formats.normalizeReceipt(out.receipt_format);
+    out.statement_format = formats.normalizeStatement(out.statement_format);
     return out;
   }
 
   function saveSettings(patch) {
     const clean = {};
     for (const k of SETTING_KEYS) if (k in patch) clean[k] = patch[k];
+    if ('receipt_format' in clean) {
+      clean.receipt_format = formats.normalizeReceipt(clean.receipt_format, true, (m) => { throw new UserError(m); });
+    }
+    if ('statement_format' in clean) clean.statement_format = formats.normalizeStatement(clean.statement_format);
     for (const k of ['last_df', 'last_inv']) {
       if (k in clean) {
         const n = Number(clean[k]);
@@ -580,6 +606,7 @@ function createService(store) {
     return {
       settings: getSettings(), dorms: listDorms(), products: listProducts(),
       weeks: listWeeks(), plan: nextWeekPlan(),
+      formatDefaults: { receipt: formats.DEFAULT_RECEIPT, statement: formats.DEFAULT_STATEMENT },
     };
   }
 

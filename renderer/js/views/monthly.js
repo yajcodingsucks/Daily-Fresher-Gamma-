@@ -138,7 +138,9 @@ ${M.statement.changed_after ? '<div class="warnbox">⚠ An invoice changed after
       const M11 = 42;
       const PAGE_H = 1123 - 2 * M11;
       const p2 = doc.querySelector('.p2');
-      const content1 = (p2 ? p2.offsetTop - M11 : doc.body.scrollHeight) - M11;   // before page 2 (its margin excluded)
+      // before page 2 (its margin excluded); without page 2, down to the end of the last block
+      const end = p2 ? p2.offsetTop - M11 : Math.max(...[...doc.body.children].map((el) => el.offsetTop + el.offsetHeight));
+      const content1 = end - M11;
       const content2 = p2 ? p2.scrollHeight - 2 * M11 - 18 : 0;                  // page 2 without its padding / border
       pages = Math.max(1, Math.ceil(content1 / PAGE_H)) + (p2 ? Math.max(1, Math.ceil(content2 / PAGE_H)) : 0);
       U.$('#print').textContent = `🖨 Print statement (${pages} page${pages === 1 ? '' : 's'})`;
@@ -216,7 +218,7 @@ ${M.statement.changed_after ? '<div class="warnbox">⚠ An invoice changed after
       `${count} invoices from ${weeks.length} week${weeks.length === 1 ? '' : 's'}, Original + Copy: <b>${count * 2} pages</b>.<br>
        This is a reprint: nothing saved is changed.`, `🖨 Print ${count * 2} pages`);
     if (!ok) return;
-    const r = await App.run(() => API.print(Receipt.doc(S, pages, `Invoices ${U.monthName(M.month)}`), 'print', `Invoices ${U.monthName(M.month)}.pdf`));
+    const r = await App.run(() => API.print(Receipt.doc(S, pages, `Invoices ${U.monthName(M.month)}`), 'print', `Invoices ${U.monthName(M.month)}.pdf`, Receipt.paper(S)));
     if (r && r.done) U.toast('Sent to printer.', 'ok');
   },
 };

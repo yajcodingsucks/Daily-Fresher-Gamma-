@@ -313,3 +313,74 @@ test('the months list knows the weeks of each month and when its statement was l
   assert.strictEqual(svc.listMonths().find((m) => m.month === '2026-12').statement_printed_at, null);
   assert.strictEqual(svc.monthly('2026-11').statement.printed_at, nov.statement_printed_at);
 });
+
+// ---------- receipt format ----------
+const formats = require('../main/formats');
+const schema = require('../main/schema');
+const settingsRows = (store) => Object.fromEntries(store.all('SELECT key, value FROM settings').map((r) => [r.key, JSON.parse(r.value)]));
+
+test('first run saves the default receipt and statement format (the current Modern blue design)', () => {
+  const store = openNodeSqlite();
+  const svc = createService(store);
+  const rows = settingsRows(store);
+  assert.deepStrictEqual(rows.receipt_format, formats.DEFAULT_RECEIPT);
+  assert.deepStrictEqual(rows.statement_format, formats.DEFAULT_STATEMENT);
+  for (const k of formats.OLD_KEYS) assert.ok(!(k in rows), `old key ${k} is not saved`);
+  const f = svc.getSettings().receipt_format;
+  assert.strictEqual(f.template, 'modern');
+  assert.strictEqual(f.color, '#14a9e8');
+  assert.strictEqual(f.paper, 'A4');
+  assert.strictEqual(f.copies, 'original_copy');
+  assert.deepStrictEqual(f.signatures, ['Driver Signature', 'Received By Cook', 'Signature', 'Signature']);
+  assert.deepStrictEqual(f.columns.map((c) => c.key), ['no', 'code', 'desc', 'qty', 'uom', 'price', 'amount']);
+  assert.ok(f.columns.every((c) => c.on));
+});
+
+test('old receipt settings are moved into receipt_format on first run, then removed', () => {
+  const store = openNodeSqlite();
+  store.exec(schema);
+  const old = {
+    company_name: 'DAILY FRESHER LTD', customer_name: 'GAMMA CONSTRUCTION LTD', last_df: 600, last_inv: 400, last_date: '2026-11-20',
+    color: '#2F7D4A', note: 'No returns.', acknowledgment: 'Received in good order.', signature_labels: ['Driver', 'Cook', 'Manager'],
+    footer_text: 'Thank you', show_footer: false, show_part_payment: false, print_copy: false,
+  };
+  for (const [k, v] of Object.entries(old)) store.run('INSERT INTO settings (key, value) VALUES (?, ?)', [k, JSON.stringify(v)]);
+  const svc = createService(store);
+  const f = svc.getSettings().receipt_format;
+  assert.strictEqual(f.color, '#2f7d4a');
+  assert.strictEqual(f.note, 'No returns.');
+  assert.strictEqual(f.acknowledgment, 'Received in good order.');
+  assert.deepStrictEqual(f.signatures, ['Driver', 'Cook', 'Manager']);
+  assert.strictEqual(f.footer, 'Thank you');
+  assert.strictEqual(f.show.footer, false);
+  assert.strictEqual(f.show.part_payment, false);
+  assert.strictEqual(f.copies, 'original');
+  assert.strictEqual(f.template, 'modern');          // everything else stays as it was
+  assert.strictEqual(f.paper, 'A4');
+  assert.strictEqual(f.show.badge, true);
+  assert.strictEqual(svc.getSettings().statement_format.color, '#2f7d4a');
+  const rows = settingsRows(store);
+  for (const k of formats.OLD_KEYS) assert.ok(!(k in rows), `old key ${k} removed`);
+  assert.strictEqual(rows.company_name, 'DAILY FRESHER LTD');   // other settings untouched
+  assert.strictEqual(svc.nextWeekPlan().dfStart, 601);
+  // opening again changes nothing
+  createService(store);
+  assert.deepStrictEqual(settingsRows(store).receipt_format, rows.receipt_format);
+});
+
+test('saving a receipt format checks it', () => {
+  const svc = fresh();
+  const f = svc.getSettings().receipt_format;
+  assert.throws(() => svc.saveSettings({ receipt_format: { ...f, logo: 'data:text/html;base64,AAAA' } }), /PNG or JPG/);
+  assert.throws(() => svc.saveSettings({ receipt_format: { ...f, signatures: ['1', '2', '3', '4', '5', '6', '7'] } }), /6 signature/);
+  const cols = f.columns.map((c) => ({ ...c, on: false })).reverse();
+  const saved = svc.saveSettings({ receipt_format: { ...f, template: 'fancy', paper: 'A5', columns: cols, signatures: [], title: 'Invoice' } }).receipt_format;
+  assert.strictEqual(saved.template, 'modern');
+  assert.strictEqual(saved.paper, 'A5');
+  assert.deepStrictEqual(saved.signatures, []);
+  assert.strictEqual(saved.title, 'Invoice');
+  assert.deepStrictEqual(saved.columns.map((c) => c.key), ['amount', 'price', 'uom', 'qty', 'desc', 'code', 'no']);
+  assert.deepStrictEqual(saved.columns.filter((c) => c.on).map((c) => c.key), ['amount', 'desc']);   // always shown
+  const png = 'data:image/png;base64,iVBORw0KGgo=';
+  assert.strictEqual(svc.saveSettings({ receipt_format: { ...saved, logo: png } }).receipt_format.logo, png);
+});

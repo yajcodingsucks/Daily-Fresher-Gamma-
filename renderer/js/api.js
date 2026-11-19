@@ -20,7 +20,7 @@ const API = {
   'markPrinted', 'unlockWeek', 'getLog', 'listMonths', 'monthly', 'setPayment', 'correctInvoices', 'logStatement',
 ].forEach((m) => { API[m] = (...a) => API.call(m, ...a); });
 
-API.print = (html, mode, fileName) => API.raw('print', html, mode, fileName);
+API.print = (html, mode, fileName, paper) => API.raw('print', html, mode, fileName, paper);
 API.dataInfo = () => API.raw('dataInfo');
 API.backupNow = () => API.raw('backupNow');
 API.restoreBackup = () => API.raw('restoreBackup');
