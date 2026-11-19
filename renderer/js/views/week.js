@@ -22,8 +22,12 @@ Views.week = {
     };
     const printed = W.invoices.some((i) => i.printed_at);
 
+    const entering = !!(W.past && W.past.entering);
     main.innerHTML = `
-${W.isLatest ? '' : `<div class="oldweek"><span>✏️ You are editing an old week: <b>${U.date(W.week.date)}</b></span>
+${entering ? `<div class="oldweek entering"><span>⌨️ Entering a past week: <b>${U.date(W.week.date)}</b> — type the quantities from the paper invoices, then Finish to lock it.</span>
+  <span class="nowrap"><button class="btn sm danger" id="cancelPast">🗑 Delete</button> <button class="btn sm" id="backHist">← Back to History</button>
+  <button class="btn sm p" id="finishPast">✓ Finish</button></span></div>`
+    : W.isLatest ? '' : `<div class="oldweek"><span>✏️ You are editing an old week: <b>${U.date(W.week.date)}</b></span>
   <button class="btn sm" id="backHist">← Back to History</button></div>`}
 <div class="top">
   <div>
@@ -34,7 +38,7 @@ ${W.isLatest ? '' : `<div class="oldweek"><span>✏️ You are editing an old we
     <button class="btn" id="copyLast" ${W.prev && !W.paid ? '' : 'disabled'}
       title="${W.prev ? `Fill empty boxes with the orders of ${U.date(W.prev.date)}` : 'There is no previous week'}">⟲ Copy last week's orders</button>
     <button class="btn" id="preview">👁 Preview</button>
-    <button class="btn p big" id="printAll">🖨 Print all</button>
+    ${entering ? '' : '<button class="btn p big" id="printAll">🖨 Print all</button>'}
     <div class="more">
       <button class="btn" id="moreBtn">⋯ More</button>
       <div class="menu hidden" id="moreMenu">
@@ -307,6 +311,34 @@ ${W.isLatest ? '' : `<div class="oldweek"><span>✏️ You are editing an old we
     U.$$(`[data-c="${inp.dataset.c}"]:not(input)`, grid).forEach((e) => e.classList.add('hc'));
   },
 
+  // A past week being typed in: lock it as 'imported' (like printed), or delete it.
+  async finishPast(W0) {
+    const W = await API.getWeek(W0.week.id);
+    const D = Views.week.dorms(W);
+    const empty = D.filter((d) => d.state === 'none').map((d) => d.name);
+    const total = W.invoices.reduce((t, i) => t + i.total, 0);
+    const ok = await U.confirm(`Finish the week of ${U.date(W.week.date)}?`,
+      `${W.invoices.filter((i) => i.lines.length).length} invoices with items, Rs ${U.money(total)} in all.
+       ${empty.length ? `<br><b>No items yet:</b> ${empty.map(U.esc).join(', ')}.` : ''}
+       <br>The week is then locked like a printed week and shows as <b>Imported</b>. It can still be corrected later from History.`, '✓ Finish and lock');
+    if (!ok) return;
+    if (await App.run(() => API.finishPastWeek(W.week.id), 'Past week saved and locked.') === undefined) return;
+    await App.refresh();
+    App.back = null;
+    Views.history.weekId = W.week.id;
+    App.go('history');
+  },
+  async cancelPast(W) {
+    const ok = await U.confirm(`Delete the week of ${U.date(W.week.date)}?`,
+      'Everything typed for this past week is removed and its invoice numbers become free again.', 'Delete', true);
+    if (!ok) return;
+    if (await App.run(() => API.deletePastWeek(W.week.id), 'Past week deleted.') === undefined) return;
+    await App.refresh();
+    App.back = null;
+    Views.history.weekId = null;
+    App.go('history');
+  },
+
   bind(main) {
     const W = App.W;
     if (U.$('#backHist')) U.$('#backHist').onclick = () => { App.back = null; Views.history.weekId = W.week.id; App.go('history'); };
@@ -316,7 +348,9 @@ ${W.isLatest ? '' : `<div class="oldweek"><span>✏️ You are editing an old we
       App.sel = { series: 'DF', dormNo: first ? first.no : 1 };
       App.go('invoice');
     };
-    U.$('#printAll').onclick = () => Views.week.printAll('print');
+    if (U.$('#printAll')) U.$('#printAll').onclick = () => Views.week.printAll('print');
+    if (U.$('#finishPast')) U.$('#finishPast').onclick = () => Views.week.finishPast(W);
+    if (U.$('#cancelPast')) U.$('#cancelPast').onclick = () => Views.week.cancelPast(W);
 
     const menu = U.$('#moreMenu');
     U.$('#moreBtn').onclick = (e) => { e.stopPropagation(); menu.classList.toggle('hidden'); };

@@ -412,3 +412,13 @@ table.changes td { padding: 5px 8px; }
 
 /* past weeks */
 .pill.imported { background: #ece6fb; color: #5b3fa8; }
+.warnbox.missing { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.pastdlg { width: 640px; max-width: calc(100vw - 40px); }
+.past-tabs { display: flex; width: fit-content; }
+.row3 { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 10px; }
+.pcheck { min-height: 52px; }
+.pc-line { padding: 7px 10px; border-radius: 7px; margin-bottom: 6px; font-size: 13.5px; }
+.pc-line.good { background: #e3f6ea; color: var(--ok); }
+.pc-line.bad { background: #fdecea; color: var(--bad); }
+.pc-line.warn { background: var(--warn-bg); color: #7a5200; }
+.oldweek.entering { background: #ece6fb; border-color: #c9bdf0; color: #3f2a85; }

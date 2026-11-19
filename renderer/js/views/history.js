@@ -10,6 +10,14 @@ Views.history = {
     if (Views.history.edit) return Views.history.renderEdit(main);
     if (Views.history.weekId) return Views.history.renderWeek(main);
     const weeks = await API.listWeeks();
+    const missing = await API.missingWeeks();
+    const and = (list) => (list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}` : list[0]);
+    const missingRows = missing.map((m) => {
+      const month = U.monthName(m.month).split(' ')[0];
+      return `<div class="warnbox missing"><span>⚠ <b>Missing week${m.dates.length === 1 ? '' : 's'} in ${month}:</b>
+        ${and(m.dates.map(U.date))} — the ${month} statement will be incomplete until ${m.dates.length === 1 ? 'it is' : 'they are'} added.</span>
+        <button class="btn sm" data-add="${m.dates[m.dates.length - 1]}">＋ Add ${U.date(m.dates[m.dates.length - 1]).slice(0, 5)}</button></div>`;
+    }).join('');
     const rows = weeks.map((w) => {
       const status = w.past ? Views.history.pastPill(w.past)
         : w.printed === 0 ? '<span class="pill wait">Draft</span>'
@@ -22,12 +30,17 @@ Views.history = {
     }).join('');
     main.innerHTML = `
 <div class="top"><div><h2>History</h2><div class="sub">${weeks.length} week${weeks.length === 1 ? '' : 's'} saved</div></div>
-  <div class="actions"><input class="inp" id="find" placeholder="Find invoice, e.g. DF-505" style="width:240px"></div></div>
+  <div class="actions"><input class="inp" id="find" placeholder="Find invoice, e.g. DF-505" style="width:240px">
+    <button class="btn p" id="addPast">＋ Add a past week</button></div></div>
+${missingRows}
 <div class="table-wrap"><table><thead><tr><th>Week</th><th>DF numbers</th><th>INV numbers</th><th class="r">Vegetables (Rs)</th>
   <th class="r">Pot. &amp; Onions (Rs)</th><th class="r">Total (Rs)</th><th class="c">Status</th><th></th></tr></thead>
   <tbody>${rows || '<tr><td colspan="8" class="muted c" style="padding:24px">No weeks yet.</td></tr>'}</tbody></table></div>`;
 
     U.$$('[data-w]').forEach((b) => { b.onclick = () => { Views.history.weekId = Number(b.dataset.w); App.go('history'); }; });
+    const firstMissing = missing.length ? missing[missing.length - 1].dates.slice(-1)[0] : '';
+    U.$('#addPast').onclick = () => Views.history.addPastDialog(firstMissing);
+    U.$$('[data-add]').forEach((b) => { b.onclick = () => Views.history.addPastDialog(b.dataset.add); });
     U.$('#find').onkeydown = (e) => {
       if (e.key !== 'Enter') return;
       const m = e.target.value.trim().toUpperCase().match(/^(DF|INV)\s*-?\s*(\d+)$/);
@@ -38,6 +51,85 @@ Views.history = {
       if (!w) { U.toast(`${series}-${n} was not made in this app.`, 'err'); return; }
       Views.history.openInvoice(w.id, { series, number: n });
     };
+  },
+
+  // "＋ Add a past week": Import from Excel, or Type it in (date + first numbers, checked live).
+  addPastDialog(date = '', tab = 'type') {
+    const box = U.$('#modal');
+    const state = { date, dfStart: '', invStart: '', edited: false, check: null };
+    const close = () => { box.classList.add('hidden'); box.innerHTML = ''; document.removeEventListener('keydown', onKey); };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey);
+    const draw = () => {
+      box.innerHTML = `<div class="box wide pastdlg">
+        <h3>Add a past week</h3>
+        <div class="tabs past-tabs"><button data-t="excel" class="${tab === 'excel' ? 'on' : ''}">📥 Import from Excel</button>
+          <button data-t="type" class="${tab === 'type' ? 'on' : ''}">⌨️ Type it in</button></div>
+        <div id="pastBody"></div>
+        <div class="btns"><button class="btn" data-x="0">Cancel</button>
+          ${tab === 'type' ? '<button class="btn p" id="pastNext" disabled>Next: enter quantities →</button>' : ''}</div></div>`;
+      box.classList.remove('hidden');
+      U.$$('[data-t]', box).forEach((b) => { b.onclick = () => { tab = b.dataset.t; draw(); }; });
+      U.$('[data-x="0"]', box).onclick = close;
+      if (tab === 'excel') Views.history.excelTab(U.$('#pastBody', box), close);
+      else typeTab();
+    };
+    const typeTab = () => {
+      U.$('#pastBody', box).innerHTML = `<p class="small muted" style="margin-top:0">For a week that was invoiced before the app (or missed):
+        the app makes one DF and one INV invoice per dormitory with the numbers you choose, then you type the quantities on the usual grid.</p>
+        <div class="row3"><div class="field"><label>Week date</label><input class="inp" type="date" id="pDate" value="${U.esc(state.date)}"></div>
+          <div class="field"><label>First DF number</label><input class="inp" id="pDf" inputmode="numeric" value="${U.esc(state.dfStart)}"></div>
+          <div class="field"><label>First INV number</label><input class="inp" id="pInv" inputmode="numeric" value="${U.esc(state.invStart)}"></div></div>
+        <div id="pCheck" class="pcheck"></div>`;
+      const run = async () => {
+        state.date = U.$('#pDate').value;
+        const c = await API.checkPastWeek({ date: state.date, dfStart: state.edited ? state.dfStart : '', invStart: state.edited ? state.invStart : '' });
+        if (U.$('#pDate') === null) return;
+        if (!state.edited && c.df && c.inv) { U.$('#pDf').value = state.dfStart = String(c.df.from); U.$('#pInv').value = state.invStart = String(c.inv.from); }
+        state.check = c;
+        U.$('#pCheck').innerHTML = Views.history.pastCheckHtml(c);
+        U.$('#pastNext').disabled = !c.ok;
+      };
+      U.$('#pDate').oninput = run;
+      for (const [id, key] of [['#pDf', 'dfStart'], ['#pInv', 'invStart']]) {
+        U.$(id).oninput = (e) => { state[key] = e.target.value.trim(); state.edited = true; run(); };
+      }
+      U.$('#pastNext').onclick = async () => {
+        if (!state.check || !state.check.ok) return;
+        const id = await App.run(() => API.addPastWeek({ date: state.date, dfStart: Number(state.dfStart), invStart: Number(state.invStart), entering: true }));
+        if (!id) return;
+        close();
+        await App.refresh();
+        App.weekId = id;
+        App.back = { weekId: id };
+        App.go('week');
+      };
+      run();
+    };
+    draw();
+  },
+
+  // "Will create DF-485 → DF-493 and INV-336 → INV-344 for 9 dorms" and where the date sits.
+  pastCheckHtml(c) {
+    if (!c.valid) return '<div class="pc-line bad">Choose the week date.</div>';
+    const range = (s, r) => (r && r.valid ? `${s}-${r.from} → ${s}-${r.to}` : `${s}-?`);
+    const clashes = [...((c.df || {}).clashes || []).map((n) => `DF-${n}`), ...((c.inv || {}).clashes || []).map((n) => `INV-${n}`)];
+    const numbersOk = c.df && c.inv && c.df.valid && c.inv.valid && !clashes.length;
+    let out = `<div class="pc-line ${numbersOk ? 'good' : 'bad'}">${numbersOk ? '✓' : '✗'} Will create ${range('DF', c.df)} and ${range('INV', c.inv)}
+      for ${c.dorms} dorm${c.dorms === 1 ? '' : 's'}${clashes.length ? ` — already used: ${clashes.join(', ')}` : numbersOk ? ' — all free' : ''}</div>`;
+    const n = c.neighbours || {};
+    const side = (gap, w, word) => (w ? `${gap} days ${word} ${U.date(w.date)}${gap % 7 === 0 ? (gap > 7 ? ` (${gap / 7 - 1} week${gap / 7 - 1 === 1 ? '' : 's'} still missing in between)` : '') : ' — not on the weekly rhythm'}` : '');
+    const parts = [side(n.nextGap, n.next, 'before'), side(n.prevGap, n.prev, 'after')].filter(Boolean);
+    if (parts.length && !c.exists) {
+      out += `<div class="pc-line ${n.onRhythm ? 'good' : 'warn'}">${n.onRhythm ? '✓' : '⚠'} ${parts.join(' · ')}</div>`;
+    }
+    for (const p of c.problems.filter((x) => !/already used|whole number/.test(x))) out += `<div class="pc-line bad">✗ ${U.esc(p)}</div>`;
+    return out;
+  },
+
+  // Filled in by the Excel import (part 3).
+  excelTab(body) {
+    body.innerHTML = '<p class="muted">Import from Excel is not available yet.</p>';
   },
 
   // Badge of a past week: added by typing or from Excel, locked like printed weeks once finished.
