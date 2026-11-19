@@ -7,7 +7,7 @@ Views.settings = {
   tab: 'company',
   TABS: [
     ['company', 'Company'], ['customer', 'Customer & numbering'], ['dorms', 'Dormitories'],
-    ['receipt', 'Receipt format'], ['statement', 'Statement format'], ['backups', 'Backups'],
+    ['receipt', 'Receipt format'], ['statement', 'Statement format'], ['backups', 'Backups'], ['help', 'Help'],
   ],
   COLORS: ['#14a9e8', '#0b5c8a', '#2f7d4a', '#7a3db8', '#c0392b', '#333333'],
   TEMPLATES: [
@@ -181,6 +181,50 @@ Views.settings = {
     U.$('#backup').onclick = async () => { const f2 = await App.run(() => API.backupNow()); if (f2) U.toast('Backup saved.', 'ok'); };
     U.$('#folder').onclick = () => App.run(() => API.openDataFolder());
     U.$('#restore').onclick = () => App.run(() => API.restoreBackup());
+  },
+
+  // ---------- Help → Check the app ----------
+  // What to look at (or send) when the app misbehaves on a laptop: versions, Windows, data folder, error log.
+  async tab_help(main, body) {
+    const V = Views.settings;
+    V.setTop('If something goes wrong on a laptop, check the app here and send the details.',
+      '<button class="btn" id="copyCheck">📋 Copy details</button><button class="btn p" id="runCheck">🩺 Check again</button>');
+    body.innerHTML = '<div class="card set-card help-card"><h3>Check the app</h3><div id="checkOut" class="muted">Checking…</div></div>';
+    let text = '';
+    const run = async () => {
+      U.$('#checkOut').innerHTML = '<span class="muted">Checking…</span>';
+      const c = await App.run(() => API.appCheck());
+      if (!c) { U.$('#checkOut').innerHTML = '<div class="iw bad">The check could not run.</div>'; return; }
+      const e = U.esc;
+      const kb = (n) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+      const h = c.health || {};
+      const rows = [
+        ['App version', `${c.app}${c.packaged ? '' : ' (development, npm start)'}`],
+        ['Electron', `${c.electron} · Chrome ${c.chrome} · Node ${c.node}`],
+        ['Windows', c.windows],
+        ['Computer', `${c.cpu} · ${c.cores} cores · ${c.memoryGb} GB memory · ${c.machine} (app built for ${c.appArch})`],
+        ['Graphics', c.graphics],
+        ['Data folder', c.dataDir],
+        ['Database', `${kb(c.dbSize)}, last saved ${c.dbSaved ? `${U.dayOf(c.dbSaved)} ${U.stamp(c.dbSaved).split(' · ')[1]}` : '—'}`],
+        ['Database check', h.ok ? `✓ OK — ${h.weeks} weeks (${h.first ? `${U.date(h.first)} → ${U.date(h.last)}` : 'none'}), ${h.invoices} invoices, ${h.products} items, ${h.dorms} dorms`
+          : `✗ ${h.error || h.integrity || 'problem'}`],
+        ['Backups', `${c.backups} in ${c.backupDir}${c.lastBackup ? ` · newest ${c.lastBackup}` : ''}`],
+        ['Error log', c.errorLogSize ? `${c.errorLog} (${kb(c.errorLogSize)})` : 'No errors logged ✓'],
+        ['App file', c.exe],
+      ];
+      text = rows.map(([k, v]) => `${k}: ${v}`).join('\n') + (c.errorLogTail ? `\n\nEnd of error.log:\n${c.errorLogTail}` : '');
+      U.$('#checkOut').innerHTML = `<table class="kvtable">${rows.map(([k, v]) => `<tr><th>${e(k)}</th><td class="${/^✗/.test(v) ? 'bad-t' : ''}">${e(v)}</td></tr>`).join('')}</table>
+        <div class="set-btns" style="margin-top:12px"><button class="btn" id="openLog" ${c.errorLogSize ? '' : 'disabled'}>📄 Open error log</button>
+          <button class="btn" id="openData">📂 Open data folder</button></div>
+        ${c.errorLogTail ? `<details class="logtail"><summary>Last lines of error.log</summary><pre>${e(c.errorLogTail)}</pre></details>` : ''}`;
+      U.$('#openLog').onclick = () => App.run(() => API.openErrorLog());
+      U.$('#openData').onclick = () => App.run(() => API.openDataFolder());
+    };
+    U.$('#runCheck').onclick = run;
+    U.$('#copyCheck').onclick = async () => {
+      try { await navigator.clipboard.writeText(text); U.toast('Details copied. Paste them in a message or email.', 'ok'); } catch (err) { U.toast(`Could not copy: ${err.message}`, 'err'); }
+    };
+    await run();
   },
 
   // ---------- shared by Receipt format and Statement format ----------

@@ -12,3 +12,6 @@ Thumbs.db
 .vscode/
 *.log
 test/out/
+
+# Electron zips for offline builds (download them, see README)
+electron-zips/

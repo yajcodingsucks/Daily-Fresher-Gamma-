@@ -9,8 +9,12 @@
   "scripts": {
     "start": "node scripts/start.js",
     "test": "node --test test/*.test.js",
-    "dist": "electron-builder --win nsis portable --x64",
-    "dist:setup": "electron-builder --win nsis --x64",
+    "setup:electron": "node scripts/setup-electron.js",
+    "predist": "node scripts/setup-electron.js --check && node scripts/clean-dist.js",
+    "dist": "electron-builder --win",
+    "predist:setup": "node scripts/setup-electron.js --check && node scripts/clean-dist.js",
+    "dist:setup": "electron-builder --win nsis --x64 --arm64",
+    "predist:portable": "node scripts/setup-electron.js --check && node scripts/clean-dist.js",
     "dist:portable": "electron-builder --win portable --x64"
   },
   "dependencies": {
@@ -18,14 +22,14 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
-    "electron": "^33.2.0",
-    "electron-builder": "^25.1.8"
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0"
   },
   "build": {
     "appId": "mu.dailyfresher.invoices",
     "productName": "Daily Fresher Invoices",
     "copyright": "Daily Fresher Ltd",
-    "electronDist": "node_modules/electron/dist",
+    "electronDist": "electron-zips",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -45,8 +49,25 @@
     "win": {
       "icon": "build/icon.ico",
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "nsis": {
@@ -59,13 +80,15 @@
       "shortcutName": "Daily Fresher Invoices",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
-      "artifactName": "Daily Fresher Invoices Setup.exe"
+      "artifactName": "Daily Fresher Invoices Setup.exe",
+      "include": "build/installer.nsh"
     },
     "portable": {
       "artifactName": "Daily Fresher Invoices.exe"
     }
   },
   "allowScripts": {
-    "electron@33.4.11": true
+    "electron@45.4.1": false,
+    "electron-winstaller@5.4.0": false
   }
 }

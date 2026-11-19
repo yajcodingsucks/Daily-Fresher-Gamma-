@@ -71,24 +71,60 @@ so you know to reprint it.
 
 ## Run it
 
-You need [Node.js](https://nodejs.org) (LTS) and Git.
+You need [Node.js](https://nodejs.org) (LTS) and Git. Electron itself is **not** downloaded by npm (it cannot download
+it on this laptop), so put it in place from zip files once:
+
+1. `npm install`
+2. Download from **https://github.com/electron/electron/releases/tag/v45.4.1** (the Electron version in
+   `package.json`) into a folder **`electron-zips`** in the project:
+   - `electron-v45.4.1-win32-x64.zip`
+   - `electron-v45.4.1-win32-arm64.zip`
+   - `SHASUMS256.txt` (to check the zips)
+3. `npm run setup:electron` — checks the zips and unpacks the right one into `node_modules\electron` for `npm start`.
 
 ```bash
-npm install     # first time only
 npm start       # opens the app
-npm test        # checks the business rules (numbering, totals, locking, corrections, statements)
+npm test        # checks the business rules (numbering, totals, locking, corrections, statements, import)
 ```
 
-Build the Windows app (64-bit). It uses the Electron already in `node_modules`, nothing is downloaded again:
+### Build the Windows app
 
 ```bash
-npm run dist            # both files below
-npm run dist:setup      # dist/Daily Fresher Invoices Setup.exe   (installer, recommended)
-npm run dist:portable   # dist/Daily Fresher Invoices.exe         (single .exe, runs without installing)
+npm run dist            # everything below
+npm run dist:setup      # only the installer
+npm run dist:portable   # only the portable .exe
 ```
 
-The installer installs for the current user only (no admin password), lets you choose the folder, and adds a
-desktop and Start menu shortcut. The icon is `build/icon.ico`. `dist/` is not stored in Git.
+`npm run dist` first checks the zips and deletes `dist\`, then makes (from the zips only, nothing is downloaded):
+
+| File | What it is |
+|---|---|
+| `dist\Daily Fresher Invoices Setup.exe` | **Installer for every laptop**: contains the 64-bit Intel/AMD (x64) and the ARM (arm64) app and installs the right one. Per-user (no admin password), choose the folder, desktop + Start menu shortcut. Windows 10 or 11. |
+| `dist\Daily Fresher Invoices.exe` | Portable x64 app: one file, runs without installing. |
+| `dist\win-unpacked\` | The x64 app as a plain folder (start `Daily Fresher Invoices.exe` in it). |
+
+The icon is `build/icon.ico`; `build/installer.nsh` stops the installer on Windows older than 10.
+`dist/` and `electron-zips/` are not stored in Git.
+
+If `npm run dist` says *dist could not be deleted*: Visual Studio Code keeps `.asar` files open once it has looked at
+them. Close VS Code completely and run `npm run dist` from a normal PowerShell / Command Prompt.
+(`.vscode/settings.json` hides `dist` and `electron-zips` from VS Code to avoid this.)
+
+**32-bit Windows (ia32)** is not built: Electron stopped making 32-bit Windows builds after Electron 43. Every Windows 11
+laptop and every 64-bit Windows 10 laptop is covered.
+
+### Update Electron later
+
+Electron versions are supported for about 6 months; an old one can crash on new Windows builds (for example
+`STATUS_ILLEGAL_INSTRUCTION`). To move to a newer version `X.Y.Z`:
+
+1. Check https://www.electronjs.org/docs/latest/tutorial/electron-timelines and the release notes for breaking changes.
+2. `npm install --save-dev --save-exact electron@X.Y.Z` (and `electron-builder@latest` if the build complains).
+3. In `package.json` → `allowScripts`, change the `electron@...` key to the new version (keep it `false`: npm must not
+   try to download Electron).
+4. Download `electron-vX.Y.Z-win32-x64.zip`, `electron-vX.Y.Z-win32-arm64.zip` and `SHASUMS256.txt` from
+   `https://github.com/electron/electron/releases/tag/vX.Y.Z` into `electron-zips\` (delete the old zips).
+5. `npm run setup:electron`, `npm test`, `npm start` (check printing and Settings → Help → Check the app), then `npm run dist`.
 
 ## Install on another laptop
 
@@ -103,6 +139,11 @@ desktop and Start menu shortcut. The icon is `build/icon.ico`. `dist/` is not st
 Data always stays in `Documents\Daily Fresher Invoices` on each laptop, so installing or updating the app never
 touches it. To update, run the newer Setup `.exe` over the old one.
 
+**If the app does not start or closes on a laptop**: it never closes silently. Problems are written to
+`Documents\Daily Fresher Invoices\error.log` (date and details), and a message says what happened. If it opens,
+**Settings → Help → Check the app** shows the app, Electron and Windows versions, the computer, the data folder,
+a database check and the end of the error log, with a button to copy everything for a message.
+Graphics acceleration is switched off, which avoids crashes with some graphics drivers.
 ## Where the data is
 
 `Documents\Daily Fresher Invoices\daily-fresher.db` — one SQLite file with everything.
@@ -119,7 +160,8 @@ and numbering that continues after **DF-502 / INV-353 (20.11.2026)** — so the 
 
 ```
 main/                 "backend" – runs in Node.js
-  main.js             starts the app, printing, backups, connects screens to the rules
+  main.js             starts the app, printing, backups, error log, connects screens to the rules
+  crashlog.js         error.log in the data folder (crashes, with Windows exit codes explained)
   preload.js          the safe bridge: the only functions the screens can call
   service.js          ALL business rules: numbering, dates, prices, totals, locking, corrections, statements
   schema.js           database tables (+ a trigger that keeps onions/potatoes off DF invoices)

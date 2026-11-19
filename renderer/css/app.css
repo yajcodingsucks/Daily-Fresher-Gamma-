@@ -466,3 +466,11 @@ table.imp td.icheck .more { display: inline-block; margin-top: 2px; }
 table.imp td:nth-child(3), table.imp td:nth-child(5), table.imp th { white-space: nowrap; }
 table.imp td.icheck { min-width: 260px; }
 .istats .card b { font-size: 18px; white-space: nowrap; }
+
+/* Settings → Help → Check the app */
+.help-card { max-width: 900px; }
+.kvtable { width: 100%; border-collapse: collapse; }
+.kvtable th { text-align: left; width: 160px; padding: 7px 10px 7px 0; color: var(--muted); font-size: 13px; font-weight: 600; vertical-align: top; background: none; }
+.kvtable td { padding: 7px 0; border-bottom: 1px solid var(--line); word-break: break-word; font-size: 13.5px; }
+.logtail { margin-top: 12px; }
+.logtail pre { background: #1a2430; color: #e6edf3; padding: 10px 12px; border-radius: 8px; font-size: 12px; max-height: 260px; overflow: auto; white-space: pre-wrap; }

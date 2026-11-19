@@ -24,6 +24,8 @@ const API = {
 API.print = (html, mode, fileName, paper) => API.raw('print', html, mode, fileName, paper);
 API.dataInfo = () => API.raw('dataInfo');
 API.openExcel = () => API.raw('openExcel');
+API.appCheck = () => API.raw('appCheck');
+API.openErrorLog = () => API.raw('openErrorLog');
 API.backupNow = () => API.raw('backupNow');
 API.restoreBackup = () => API.raw('restoreBackup');
 API.openDataFolder = () => API.raw('openDataFolder');

@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('bridge', {
   print: (html, mode, fileName, paper) => ipcRenderer.invoke('print', html, mode, fileName, paper),
   dataInfo: () => ipcRenderer.invoke('dataInfo'),
   openExcel: () => ipcRenderer.invoke('openExcel'),
+  appCheck: () => ipcRenderer.invoke('appCheck'),
+  openErrorLog: () => ipcRenderer.invoke('openErrorLog'),
   backupNow: () => ipcRenderer.invoke('backupNow'),
   restoreBackup: () => ipcRenderer.invoke('restoreBackup'),
   openDataFolder: () => ipcRenderer.invoke('openDataFolder'),

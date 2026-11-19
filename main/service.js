@@ -889,6 +889,18 @@ function createService(store) {
     });
   }
 
+  // For Settings → Help → Check the app: SQLite's own integrity check and what is in the database.
+  function databaseHealth() {
+    const check = store.all('PRAGMA integrity_check').map((r) => Object.values(r)[0]);
+    const count = (t) => store.get(`SELECT COUNT(*) AS n FROM ${t}`).n;
+    const range = store.get('SELECT MIN(date) AS first, MAX(date) AS last FROM weeks');
+    return {
+      ok: check.length === 1 && check[0] === 'ok', integrity: check.slice(0, 5).join('; '),
+      weeks: count('weeks'), invoices: count('invoices'), lines: count('invoice_lines'), products: count('products'), dorms: count('dorms'),
+      first: range.first, last: range.last,
+    };
+  }
+
   function bootstrap() {
     return {
       settings: getSettings(), dorms: listDorms(), products: listProducts(),
@@ -901,7 +913,7 @@ function createService(store) {
     bootstrap, getSettings, saveSettings, listDorms, saveDorm, listProducts, saveProduct, deleteProduct,
     nextWeekPlan, newWeek, deleteWeek, listWeeks, getWeek, copyLastWeek, setQty, setWeekPrice, setInvoiceFields,
     correctInvoices, markPrinted, unlockWeek, getLog, listMonths, monthly, setPayment, logStatement,
-    checkPastWeek, addPastWeek, finishPastWeek, deletePastWeek, missingWeeks, startImport, checkImport, importWeek,
+    checkPastWeek, addPastWeek, finishPastWeek, deletePastWeek, missingWeeks, startImport, checkImport, importWeek, databaseHealth,
   };
 }
 
