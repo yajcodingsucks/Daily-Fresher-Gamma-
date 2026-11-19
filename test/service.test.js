@@ -454,3 +454,83 @@ test('a printed invoice keeps the cook name it was printed with', () => {
   svc.saveDorm({ ...dorm, cook_name: '' });
   assert.strictEqual(svc.getWeek(w.week.id).invoices.find((i) => i.id === df.id).cook_name, 'Sunil');
 });
+
+// ---------- past weeks ----------
+const pastSetup = () => {
+  const svc = fresh();
+  svc.newWeek();                                                   // 27.11: DF-503..511, INV-354..362
+  return svc;
+};
+
+test('addPastWeek adds a locked, imported week before the first week, numbered in dorm order', () => {
+  const svc = pastSetup();
+  const id = svc.addPastWeek({ date: '2026-11-20', dfStart: 494, invStart: 345 });
+  const w = svc.getWeek(id);
+  assert.deepStrictEqual(w.invoices.filter((i) => i.series === 'DF').map((i) => [i.dorm_no, i.number]),
+    [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [n, 493 + n]));
+  assert.deepStrictEqual(w.invoices.filter((i) => i.series === 'INV').map((i) => i.number), [345, 346, 347, 348, 349, 350, 351, 352, 353]);
+  assert.ok(w.invoices.every((i) => i.printed_at === '2026-11-20'));
+  assert.strictEqual(svc.getLog(id).filter((c) => c.action === 'imported').length, 18);
+  assert.strictEqual(w.past.mode, 'typed');
+  assert.throws(() => svc.setQty(w.invoices[0].id, prod(svc, 'Veg-Brin').id, 5), /locked/);
+  assert.strictEqual(svc.listWeeks().find((x) => x.id === id).past.mode, 'typed');
+});
+
+test('addPastWeek rejects used numbers (listing them) and dates that already exist or come after the latest week', () => {
+  const svc = pastSetup();
+  assert.throws(() => svc.addPastWeek({ date: '2026-11-20', dfStart: 500, invStart: 345 }), /DF-503, DF-504, DF-505, DF-506, DF-507, DF-508 are already used/);
+  assert.throws(() => svc.addPastWeek({ date: '2026-11-20', dfStart: 494, invStart: 362 }), /INV-362 is already used/);
+  assert.throws(() => svc.addPastWeek({ date: '2026-11-27', dfStart: 400, invStart: 300 }), /already a week on 27\.11\.2026/);
+  assert.throws(() => svc.addPastWeek({ date: '2026-12-04', dfStart: 600, invStart: 600 }), /after the latest week/);
+  assert.throws(() => svc.addPastWeek({ date: '2026-02-30', dfStart: 1, invStart: 1 }), /valid date/);
+  assert.strictEqual(svc.listWeeks().length, 1);                   // nothing half-made
+  const c = svc.checkPastWeek({ date: '2026-11-20' });
+  assert.deepStrictEqual([c.df.from, c.df.to, c.inv.from, c.inv.to, c.ok], [494, 502, 345, 353, true]);   // suggested numbers
+  assert.strictEqual(c.neighbours.nextGap, 7);
+});
+
+test('past weeks never change next-week numbering, and the November statement has all 4 weeks in date order', () => {
+  const svc = pastSetup();
+  svc.addPastWeek({ date: '2026-11-13', dfStart: 485, invStart: 336 });
+  svc.addPastWeek({ date: '2026-11-06', dfStart: 476, invStart: 327 });
+  const c20 = svc.checkPastWeek({ date: '2026-11-20' });
+  assert.deepStrictEqual([c20.df.from, c20.inv.from], [494, 345]);  // fits between 13.11 and 27.11
+  svc.addPastWeek({ date: '2026-11-20', dfStart: 494, invStart: 345 });
+  assert.deepStrictEqual(svc.nextWeekPlan(), { date: '2026-12-04', dfStart: 512, invStart: 363, dormCount: 9 });
+  const w = svc.getWeek(svc.newWeek());
+  assert.strictEqual(w.week.date, '2026-12-04');
+  assert.strictEqual(Math.min(...w.invoices.filter((i) => i.series === 'DF').map((i) => i.number)), 512);
+  const nov = svc.monthly('2026-11');
+  assert.deepStrictEqual(nov.weeks.map((x) => x.date), ['2026-11-06', '2026-11-13', '2026-11-20', '2026-11-27']);
+  assert.deepStrictEqual(nov.weeks[0].rows.map((r) => r.df.number), [476, 477, 478, 479, 480, 481, 482, 483, 484]);
+  assert.deepStrictEqual(svc.missingWeeks(), []);
+});
+
+test('missing weeks are found by month', () => {
+  const svc = pastSetup();
+  assert.deepStrictEqual(svc.missingWeeks(), [{ month: '2026-11', dates: ['2026-11-06', '2026-11-13', '2026-11-20'] }]);
+  svc.addPastWeek({ date: '2026-11-13', dfStart: 485, invStart: 336 });
+  assert.deepStrictEqual(svc.missingWeeks(), [{ month: '2026-11', dates: ['2026-11-06', '2026-11-20'] }]);
+});
+
+test('a past week can be typed in unlocked, then finished (locked) or deleted while entering', () => {
+  const svc = pastSetup();
+  const id = svc.addPastWeek({ date: '2026-11-20', dfStart: 494, invStart: 345, entering: true });
+  let w = svc.getWeek(id);
+  assert.strictEqual(w.past.entering, true);
+  assert.ok(w.invoices.every((i) => !i.printed_at));
+  const df = w.invoices.find((i) => i.series === 'DF' && i.dorm_no === 1);
+  assert.strictEqual(svc.setQty(df.id, prod(svc, 'Veg-Brin').id, 14), 840);
+  svc.setWeekPrice(id, prod(svc, 'Veg-Brin').id, 65);               // a past week's price never changes the current price
+  assert.strictEqual(prod(svc, 'Veg-Brin').price, 60);
+  svc.finishPastWeek(id);
+  w = svc.getWeek(id);
+  assert.strictEqual(w.past.entering, false);
+  assert.ok(w.invoices.every((i) => i.printed_at === '2026-11-20'));
+  assert.throws(() => svc.deletePastWeek(id), /still being entered/);
+  assert.throws(() => svc.finishPastWeek(id), /not being entered/);
+  const id2 = svc.addPastWeek({ date: '2026-11-13', dfStart: 485, invStart: 336, entering: true });
+  svc.deletePastWeek(id2);
+  assert.deepStrictEqual(svc.listWeeks().map((x) => x.date), ['2026-11-27', '2026-11-20']);
+  assert.ok(svc.checkPastWeek({ date: '2026-11-13', dfStart: 485, invStart: 336 }).ok);   // its numbers are free again
+});

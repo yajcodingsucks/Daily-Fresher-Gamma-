@@ -17,7 +17,10 @@ function addDays(iso, n) {
 }
 
 function isIsoDate(s) {
-  return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s + 'T00:00:00Z'));
+  // the date must really exist: 2026-02-30 is not rolled over into March
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const t = Date.parse(s + 'T00:00:00Z');
+  return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === s;
 }
 
 class UserError extends Error {}
@@ -250,6 +253,186 @@ function createService(store) {
     });
   }
 
+  // ---------- past weeks (typed in or imported from Excel) ----------
+  // A past week is a week dated BEFORE the latest week (or between weeks), with invoice numbers chosen
+  // by the user. Its invoices are locked like printed ones (printed_at = the week date) and logged as
+  // 'imported'. A week-level 'past_week' entry in change_log (no invoice) keeps how it was added:
+  // { week_id, mode: 'typed' | 'excel', entering, file, sheets, autofixes, mappings, skipped, ... }.
+  // "Start next week" is unaffected: it still uses the highest number + 1 and the latest date + 7 days.
+  const days = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000);
+
+  function pastWeekInfo() {
+    const out = new Map();
+    for (const r of store.all("SELECT id, at, detail FROM change_log WHERE action = 'past_week' AND invoice_id IS NULL ORDER BY id")) {
+      const d = parse(r.detail);
+      if (d.week_id) out.set(d.week_id, { ...d, log_id: r.id, at: r.at });
+    }
+    return out;
+  }
+  const pastWeek = (weekId) => pastWeekInfo().get(weekId) || null;
+
+  // The weeks before and after a date, and whether the date sits on their 7-day rhythm.
+  function weekNeighbours(date) {
+    const prev = store.get('SELECT id, date FROM weeks WHERE date < ? ORDER BY date DESC LIMIT 1', [date]) || null;
+    const next = store.get('SELECT id, date FROM weeks WHERE date > ? ORDER BY date ASC LIMIT 1', [date]) || null;
+    const prevGap = prev ? days(prev.date, date) : null;
+    const nextGap = next ? days(date, next.date) : null;
+    return { prev, next, prevGap, nextGap, onRhythm: (prevGap === null || prevGap % 7 === 0) && (nextGap === null || nextGap % 7 === 0) };
+  }
+
+  const pastDorms = (dormIds) => (Array.isArray(dormIds) && dormIds.length
+    ? store.all(`SELECT * FROM dorms WHERE id IN (${dormIds.map(() => '?').join(',')}) ORDER BY no`, dormIds.map(Number))
+    : store.all('SELECT * FROM dorms WHERE active = 1 ORDER BY no'));
+
+  // Which of these numbers are already used (any week).
+  function usedNumbers(series, numbers) {
+    if (!numbers.length) return [];
+    const set = new Set(store.all(`SELECT number FROM invoices WHERE series = ? AND number IN (${numbers.map(() => '?').join(',')})`,
+      [series, ...numbers]).map((r) => r.number));
+    return numbers.filter((n) => set.has(n));
+  }
+
+  // Suggested first numbers for a past week: counted back from the week after it (or on from the week before).
+  function suggestNumbers(date, n) {
+    const { prev, next } = weekNeighbours(date);
+    const range = (weekId, series, fn) => store.get(`SELECT ${fn}(number) AS n FROM invoices WHERE week_id = ? AND series = ?`, [weekId, series]).n;
+    if (next) {
+      const k = Math.max(1, Math.round(days(date, next.date) / 7));
+      const df = range(next.id, 'DF', 'MIN'); const iv = range(next.id, 'INV', 'MIN');
+      if (df && iv) return { dfStart: Math.max(1, df - n * k), invStart: Math.max(1, iv - n * k) };
+    }
+    if (prev) {
+      const k = Math.max(1, Math.round(days(prev.date, date) / 7));
+      const df = range(prev.id, 'DF', 'MAX'); const iv = range(prev.id, 'INV', 'MAX');
+      if (df && iv) return { dfStart: df + 1 + n * (k - 1), invStart: iv + 1 + n * (k - 1) };
+    }
+    const s = getSettings();
+    return { dfStart: Math.max(1, s.last_df - n + 1), invStart: Math.max(1, s.last_inv - n + 1) };
+  }
+
+  // Live check for the "Type it in" dialog. Never throws for bad input: it says what is wrong.
+  function checkPastWeek({ date, dfStart, invStart, dormIds } = {}) {
+    const dorms = pastDorms(dormIds);
+    const n = dorms.length;
+    const out = { date: date || '', valid: isIsoDate(date), exists: false, dorms: n, problems: [] };
+    if (!out.valid) { out.problems.push('Choose a valid date.'); return out; }
+    out.exists = !!store.get('SELECT 1 AS x FROM weeks WHERE date = ?', [date]);
+    if (out.exists) out.problems.push(`There is already a week on ${date.split('-').reverse().join('.')}.`);
+    const latest = store.get('SELECT MAX(date) AS d FROM weeks').d;
+    out.afterLatest = !!latest && date > latest;
+    if (out.afterLatest) out.problems.push('This date is after the latest week. Use "Start next week" on This Week for new weeks.');
+    out.paid = !!store.get('SELECT 1 AS x FROM payments WHERE month = ?', [date.slice(0, 7)]);
+    if (out.paid) out.problems.push(`${MONTH_NAMES[Number(date.slice(5, 7)) - 1]} is marked as paid. Undo paid on the Monthly page first.`);
+    out.suggest = suggestNumbers(date, n);
+    out.neighbours = weekNeighbours(date);
+    for (const [series, start] of [['DF', dfStart], ['INV', invStart]]) {
+      const from = start === undefined || start === null || start === '' ? out.suggest[series === 'DF' ? 'dfStart' : 'invStart'] : Number(start);
+      const r = { from, to: from + n - 1, clashes: [], valid: Number.isInteger(from) && from >= 1 };
+      if (!r.valid) out.problems.push(`The first ${series} number must be a whole number.`);
+      else r.clashes = usedNumbers(series, Array.from({ length: n }, (_, i) => from + i));
+      if (r.clashes.length) out.problems.push(`${r.clashes.map((x) => `${series}-${x}`).join(', ')} ${r.clashes.length === 1 ? 'is' : 'are'} already used.`);
+      out[series.toLowerCase()] = r;
+    }
+    if (!n) out.problems.push('There are no dormitories.');
+    out.ok = out.problems.length === 0;
+    return out;
+  }
+
+  // Week prices for a past week: the nearest week's prices, else the item's current price.
+  function nearestPrices(date, excludeWeekId = 0) {
+    const prices = new Map();
+    const near = store.all('SELECT id, date FROM weeks WHERE id <> ?', [excludeWeekId])
+      .sort((a, b) => Math.abs(days(a.date, date)) - Math.abs(days(b.date, date)));
+    for (const w of near.reverse()) {   // farthest first, so the nearest week wins
+      for (const r of store.all('SELECT product_id, price FROM week_prices WHERE week_id = ?', [w.id])) prices.set(r.product_id, r.price);
+    }
+    return prices;
+  }
+
+  // Create the week row, its week prices, and the 'past_week' log entry. Used by addPastWeek and the Excel import.
+  function createPastWeekRow(date, info, filePrices = new Map()) {
+    const weekId = store.run('INSERT INTO weeks (date, created_at) VALUES (?, ?)', [date, now()]).lastId;
+    const near = nearestPrices(date, weekId);
+    for (const p of store.all('SELECT id, price, active FROM products').filter((x) => x.active || filePrices.has(x.id))) {
+      const price = filePrices.has(p.id) ? filePrices.get(p.id) : near.has(p.id) ? near.get(p.id) : p.price;
+      store.run('INSERT INTO week_prices (week_id, product_id, price) VALUES (?, ?, ?)', [weekId, p.id, round2(price)]);
+    }
+    log(null, 'past_week', JSON.stringify({ week_id: weekId, date, ...info }));
+    return weekId;
+  }
+
+  // Lock a past week's invoices like printed ones and log each as 'imported'.
+  function lockAsImported(weekId, date, detail) {
+    for (const inv of store.all('SELECT i.id, d.cook_name FROM invoices i JOIN dorms d ON d.id = i.dorm_id WHERE i.week_id = ?', [weekId])) {
+      store.run('UPDATE invoices SET printed_at = ? WHERE id = ?', [date, inv.id]);
+      log(inv.id, 'imported', JSON.stringify({ ...detail, cook_name: detail.cook_name ?? inv.cook_name ?? '' }));
+    }
+  }
+
+  // { date, dfStart, invStart, dormIds?, entering? } — one DF and one INV per dorm, numbered in dorm order.
+  // entering: true leaves the invoices unlocked so quantities can be typed; finishPastWeek locks them.
+  function addPastWeek({ date, dfStart, invStart, dormIds, entering = false } = {}) {
+    return store.tx(() => {
+      const c = checkPastWeek({ date, dfStart, invStart, dormIds });
+      if (!c.ok) throw new UserError(c.problems.join(' '));
+      const dorms = pastDorms(dormIds);
+      const weekId = createPastWeekRow(date, { mode: 'typed', entering: !!entering, dorms: dorms.length });
+      dorms.forEach((d, i) => {
+        store.run('INSERT INTO invoices (series, number, week_id, dorm_id, vehicle) VALUES (?, ?, ?, ?, ?)', ['DF', c.df.from + i, weekId, d.id, d.vehicle]);
+        store.run('INSERT INTO invoices (series, number, week_id, dorm_id, vehicle) VALUES (?, ?, ?, ?, ?)', ['INV', c.inv.from + i, weekId, d.id, d.vehicle]);
+      });
+      if (!entering) lockAsImported(weekId, date, { mode: 'typed' });
+      return weekId;
+    });
+  }
+
+  // "✓ Finish" on a past week being typed in: lock it with the 'imported' status.
+  function finishPastWeek(weekId) {
+    return store.tx(() => {
+      const info = pastWeek(weekId);
+      if (!info || !info.entering) throw new UserError('This week is not being entered.');
+      const week = store.get('SELECT * FROM weeks WHERE id = ?', [weekId]);
+      paidCheck(week.date);
+      lockAsImported(weekId, week.date, { mode: 'typed' });
+      const { log_id: logId, at: _at, ...detail } = info;
+      store.run('UPDATE change_log SET detail = ? WHERE id = ?', [JSON.stringify({ ...detail, entering: false, finished_at: now() }), logId]);
+      return true;
+    });
+  }
+
+  // Cancel a past week while it is still being entered (nothing was locked yet).
+  function deletePastWeek(weekId) {
+    return store.tx(() => {
+      const info = pastWeek(weekId);
+      if (!info || !info.entering) throw new UserError('Only a past week that is still being entered can be deleted.');
+      store.run('DELETE FROM invoice_lines WHERE invoice_id IN (SELECT id FROM invoices WHERE week_id = ?)', [weekId]);
+      store.run('DELETE FROM invoices WHERE week_id = ?', [weekId]);
+      store.run('DELETE FROM week_prices WHERE week_id = ?', [weekId]);
+      store.run('DELETE FROM weeks WHERE id = ?', [weekId]);
+      store.run('DELETE FROM change_log WHERE id = ?', [info.log_id]);
+      return true;
+    });
+  }
+
+  // Weeks missing from the weekly rhythm, by month: gaps of more than 7 days between weeks, and the
+  // weeks before the first week in its month. [{ month: '2026-11', dates: ['2026-11-06', ...] }]
+  function missingWeeks() {
+    const dates = store.all('SELECT date FROM weeks ORDER BY date').map((r) => r.date);
+    const missing = [];
+    if (dates.length) {
+      for (let d = addDays(dates[0], -7); d.slice(0, 7) === dates[0].slice(0, 7); d = addDays(d, -7)) missing.push(d);
+      for (let i = 1; i < dates.length; i++) {
+        for (let d = addDays(dates[i - 1], 7); days(d, dates[i]) > 3; d = addDays(d, 7)) missing.push(d);
+      }
+    }
+    const byMonth = new Map();
+    for (const d of missing.sort()) {
+      if (!byMonth.has(d.slice(0, 7))) byMonth.set(d.slice(0, 7), []);
+      byMonth.get(d.slice(0, 7)).push(d);
+    }
+    return [...byMonth].map(([month, list]) => ({ month, dates: list }));
+  }
+
   // ---------- weeks ----------
   const everPrinted = (weekId) => !!store.get(`
     SELECT 1 AS x FROM invoices i WHERE i.week_id = ? AND (i.printed_at IS NOT NULL
@@ -259,6 +442,7 @@ function createService(store) {
     round2(store.get('SELECT COALESCE(SUM(ROUND(qty * unit_price, 2)), 0) AS t FROM invoice_lines WHERE invoice_id = ?', [id]).t);
 
   function listWeeks() {
+    const past = pastWeekInfo();
     return store.all(`
       SELECT w.id, w.date,
         MIN(CASE WHEN i.series = 'DF' THEN i.number END) AS df_from,
@@ -272,7 +456,10 @@ function createService(store) {
         (SELECT COALESCE(SUM(ROUND(l.qty * l.unit_price, 2)), 0) FROM invoice_lines l JOIN invoices x ON x.id = l.invoice_id
            WHERE x.week_id = w.id AND x.series = 'INV') AS inv_total
       FROM weeks w LEFT JOIN invoices i ON i.week_id = w.id
-      GROUP BY w.id ORDER BY w.date DESC`);
+      GROUP BY w.id ORDER BY w.date DESC`).map((w) => {
+      const p = past.get(w.id);
+      return { ...w, past: p ? { mode: p.mode, entering: !!p.entering, file: p.file || null } : null };
+    });
   }
 
   function getWeek(weekId) {
@@ -289,7 +476,7 @@ function createService(store) {
     // The cook's name saved when each invoice was printed (newest print wins).
     const printedCook = new Map();
     for (const c of store.all(`SELECT c.invoice_id, c.detail FROM change_log c JOIN invoices i ON i.id = c.invoice_id
-      WHERE i.week_id = ? AND c.action = 'printed' ORDER BY c.id`, [weekId])) {
+      WHERE i.week_id = ? AND c.action IN ('printed', 'imported') ORDER BY c.id`, [weekId])) {
       const d = parse(c.detail);
       if (typeof d.cook_name === 'string') printedCook.set(c.invoice_id, d.cook_name);
     }
@@ -348,6 +535,7 @@ function createService(store) {
       week, invoices, products, prices, prevPrices, usual, recent, lastQty,
       prev: prev || null, next: next || null,
       isLatest: !!latest && latest.id === week.id,
+      past: pastWeek(week.id),   // null, or how this past week was added (typed / Excel) and its import summary
       everPrinted: everPrinted(weekId),
       paid: !!store.get('SELECT 1 AS x FROM payments WHERE month = ?', [week.date.slice(0, 7)]),
     };
@@ -638,6 +826,7 @@ function createService(store) {
     bootstrap, getSettings, saveSettings, listDorms, saveDorm, listProducts, saveProduct, deleteProduct,
     nextWeekPlan, newWeek, deleteWeek, listWeeks, getWeek, copyLastWeek, setQty, setWeekPrice, setInvoiceFields,
     correctInvoices, markPrinted, unlockWeek, getLog, listMonths, monthly, setPayment, logStatement,
+    checkPastWeek, addPastWeek, finishPastWeek, deletePastWeek, missingWeeks,
   };
 }
 

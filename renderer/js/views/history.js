@@ -11,9 +11,10 @@ Views.history = {
     if (Views.history.weekId) return Views.history.renderWeek(main);
     const weeks = await API.listWeeks();
     const rows = weeks.map((w) => {
-      const status = w.printed === 0 ? '<span class="pill wait">Draft</span>'
-        : w.printed === w.invoices ? '<span class="pill ok">Printed</span>'
-          : `<span class="pill lock">${w.printed}/${w.invoices} printed</span>`;
+      const status = w.past ? Views.history.pastPill(w.past)
+        : w.printed === 0 ? '<span class="pill wait">Draft</span>'
+          : w.printed === w.invoices ? '<span class="pill ok">Printed</span>'
+            : `<span class="pill lock">${w.printed}/${w.invoices} printed</span>`;
       return `<tr><td><b>${U.date(w.date)}</b></td><td>DF-${w.df_from} → ${w.df_to}</td><td>INV-${w.inv_from} → ${w.inv_to}</td>
         <td class="r">${U.money(w.df_total)}</td><td class="r">${U.money(w.inv_total)}</td>
         <td class="r"><b>${U.money(w.df_total + w.inv_total)}</b></td><td class="c">${status}</td>
@@ -38,6 +39,14 @@ Views.history = {
       Views.history.openInvoice(w.id, { series, number: n });
     };
   },
+
+  // Badge of a past week: added by typing or from Excel, locked like printed weeks once finished.
+  pastPill(p) {
+    if (p.entering) return '<span class="pill wait" title="Quantities are being typed in. Finish it on its grid.">✎ Entering past week</span>';
+    return `<span class="pill imported" title="${p.mode === 'excel' ? `Imported from ${U.esc(p.file || 'Excel')}` : 'Typed in as a past week'}">📥 Imported</span>`;
+  },
+  // printed_at of an imported invoice is just the week date (no time).
+  isImported: (inv) => !!inv.printed_at && inv.printed_at.length === 10,
 
   // Invoice preview for an old week, with "Back to History week".
   openInvoice(weekId, sel) {
@@ -77,7 +86,7 @@ Views.history = {
     const sum = (s) => W.invoices.filter((i) => i.series === s).reduce((t, i) => t + i.total, 0);
     const withItems = W.invoices.filter((i) => i.lines.length);
     const printedN = withItems.filter((i) => i.printed_at).length;
-    const printPill = !printedN ? '<span class="pill wait">Draft</span>'
+    const printPill = W.past ? Views.history.pastPill(W.past) : !printedN ? '<span class="pill wait">Draft</span>'
       : printedN === withItems.length ? '<span class="pill ok">Printed</span>'
         : `<span class="pill lock">Printed ${printedN} of ${withItems.length}</span>`;
     const month = U.monthName(W.week.date.slice(0, 7)).split(' ')[0];
@@ -167,6 +176,7 @@ ${W.paid ? `<div class="lockbox"><span>🔒 ${month} is marked as paid, so this 
     const corrected = all.filter((i) => i.corrections && i.corrections.length);
     let out = !invs.length ? '<span class="muted">No items</span>'
       : !printed.length ? '<span class="muted">Not printed</span>'
+        : invs.every(Views.history.isImported) ? '<span class="pill imported">📥 Imported</span>'
         : `Printed ${U.stamp(printed[0])}${printed.length < invs.length ? ' <span class="muted">(1 of 2)</span>' : ''}`;
     if (corrected.length) {
       out += `<div class="corr"><span class="pill corrected">Corrected</span>

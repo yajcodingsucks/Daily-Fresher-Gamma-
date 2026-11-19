@@ -22,7 +22,7 @@ Views.invoice = {
     main.innerHTML = `
 <div class="top">
   <div><h2>${U.esc(inv.dorm_name)} · ${inv.series}-${inv.number}</h2>
-    <div class="sub">Week of ${U.date(W.week.date)} · ${locked ? `Printed ${U.date(inv.printed_at)} 🔒` : 'Not printed yet'}</div></div>
+    <div class="sub">Week of ${U.date(W.week.date)} · ${locked ? `${Views.history.isImported(inv) ? 'Imported (past week)' : `Printed ${U.date(inv.printed_at)}`} 🔒` : 'Not printed yet'}</div></div>
   <div class="actions"><button class="btn" id="back">${App.back ? '← Back to History week' : '← Back to week'}</button></div>
 </div>
 <div class="inv-layout">

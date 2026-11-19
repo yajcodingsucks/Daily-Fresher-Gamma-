@@ -85,7 +85,9 @@ ${W.isLatest ? '' : `<div class="oldweek"><span>✏️ You are editing an old we
     const withItems = W.invoices.filter((i) => i.lines.length);
     const allPrinted = withItems.length > 0 && withItems.every((i) => i.printed_at);
     if (W.paid && allPrinted) return '<span class="pill ok">✓ Paid</span>';
+    if (allPrinted && W.past) return '<span class="pill imported">📥 Imported</span>';
     if (allPrinted) return '<span class="pill lock">🔒 Printed</span>';
+    if (W.past && W.past.entering) return `<span class="pill wait">Entering past week · ${done} of ${D.length} dorms done</span>`;
     if (D.length && done === D.length) return '<span class="pill ok">Ready to print</span>';
     return `<span class="pill wait">Entering orders · ${done} of ${D.length} dorms done</span>`;
   },

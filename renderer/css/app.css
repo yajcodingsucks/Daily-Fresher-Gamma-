@@ -409,3 +409,6 @@ table.changes td { padding: 5px 8px; }
 .cook-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 8px; align-items: center; margin-bottom: 6px; }
 .cook-row label { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cook-row .inp { padding: 6px 9px; }
+
+/* past weeks */
+.pill.imported { background: #ece6fb; color: #5b3fa8; }
