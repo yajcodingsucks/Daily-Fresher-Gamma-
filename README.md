@@ -34,6 +34,21 @@ For a printed invoice you must write what needs correcting; the app keeps a copy
 "Corrected · was Rs X → now Rs Y" with a *See changes* list, and reprints show **"Revised DD.MM.YYYY"** under the number.
 If the month is marked as paid, nothing in it can be changed until you undo paid on the Monthly page.
 
+**Past weeks** — so a whole month is in the app and its statement is complete. History warns when weeks are missing
+(e.g. "Missing weeks in November: 06.11.2026 and 13.11.2026"). **＋ Add a past week** offers two ways:
+- *⌨️ Type it in*: week date and first DF / INV number (suggested by counting back from the next week). The dialog shows
+  live whether the numbers are free and whether the date is 7 days from the neighbouring weeks. The normal grid then opens
+  with an "Entering a past week" banner; **✓ Finish** locks it.
+- *📥 Import from Excel*: choose a receipt workbook like Receipt Format02.xlsx (one sheet per dorm for DF and INV).
+  **Check before importing** shows every sheet by dorm. Codes, numbers, units and amounts are tidied automatically
+  (amounts are always qty × price, never Excel's totals). Unknown items, odd prices or quantities, dates off the weekly
+  rhythm and sheets that are not a dorm ask for a one-click decision. Duplicate or used numbers, wrong items (onions on
+  DF) and an existing week block the import until fixed. Everything can be edited or skipped; nothing is saved until
+  *Import*.
+Past weeks are locked like printed weeks and show as **📥 Imported**; they can be reprinted and corrected like any week,
+and appear in the monthly statement. Their prices never change the current prices, and **Start next week** still
+continues from the highest number and the latest date.
+
 **Monthly** — the statement. The app remembers when it was printed and warns if an invoice changed after that,
 so you know to reprint it.
 
@@ -92,6 +107,8 @@ main/                 "backend" – runs in Node.js
   schema.js           database tables (+ a trigger that keeps onions/potatoes off DF invoices)
   seed.js             starting data (dorms, items, prices, last numbers)
   formats.js          receipt / statement format: defaults, checks, and moving the old settings keys in
+  excel.js            reads Excel workbooks (only the visible cells) for the import
+  importer.js         import from Excel: reads sheets by their labels, checks, and plans what to save (pure, tested)
   store.js            small wrapper around SQLite (sql.js in the app, node:sqlite in tests)
   backup.js           backup copies of the database file
 renderer/             "frontend" – the screens
@@ -108,7 +125,9 @@ test/
 The screens never touch the database directly — they ask `service.js`, which decides what is allowed.
 
 Audit trail: everything sensitive is written to the `change_log` table — `printed` (with the cook's name printed on it, so reprints show the same name), `unlocked` (with the reason),
-`corrected` (JSON with the reason and the invoice before and after) and `statement_printed` (each statement print / PDF).
+`corrected` (JSON with the reason and the invoice before and after), `statement_printed` (each statement print / PDF),
+`imported` (each invoice of a past week) and `past_week` (how a past week was added: typed, or the Excel file with its
+auto-fixes, item mappings and skipped sheets).
 
 The receipt and statement look are stored in the `settings` table as JSON (`receipt_format`, `statement_format`).
 Older databases kept them in separate keys (`color`, `note`, `print_copy`, ...); these are moved in automatically on
