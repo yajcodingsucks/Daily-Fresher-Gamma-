@@ -4,6 +4,7 @@
 const schema = require('./schema');
 const seed = require('./seed');
 const formats = require('./formats');
+const importer = require('./importer');
 
 const SETTING_KEYS = Object.keys(seed.settings);
 const round2 = (x) => Math.round((Number(x) + Number.EPSILON) * 100) / 100;
@@ -433,6 +434,80 @@ function createService(store) {
     return [...byMonth].map(([month, list]) => ({ month, dates: list }));
   }
 
+  // ---------- import a week from Excel (the checks are in importer.js) ----------
+  // What the importer needs to know about the database.
+  function importContext() {
+    const used = new Map(store.all('SELECT i.series, i.number, w.date FROM invoices i JOIN weeks w ON w.id = i.week_id')
+      .map((r) => [`${r.series}-${r.number}`, r.date]));
+    const weekDates = store.all('SELECT date FROM weeks').map((r) => r.date);
+    const paidMonths = store.all('SELECT month FROM payments').map((r) => r.month);
+    const priceRows = store.all('SELECT wp.product_id, wp.price, w.date FROM week_prices wp JOIN weeks w ON w.id = wp.week_id');
+    const qtyRows = store.all(`SELECT i.dorm_id, l.product_id, l.qty, w.date FROM invoice_lines l
+      JOIN invoices i ON i.id = l.invoice_id JOIN weeks w ON w.id = i.week_id`);
+    const products = listProducts();
+    const near = (rows, date) => [...rows].sort((a, b) => Math.abs(days(a.date, date)) - Math.abs(days(b.date, date)));
+    return {
+      dorms: listDorms(), products, used, weekDates, paidMonths,
+      // the price of the week nearest to the date (the current price when there are no weeks yet)
+      nearestPrice(productId, date) {
+        const best = near(priceRows.filter((r) => r.product_id === productId), date)[0];
+        if (best) return { price: best.price, date: best.date };
+        const p = products.find((x) => x.id === productId);
+        return p && p.price > 0 ? { price: p.price, date: null } : null;
+      },
+      // average quantity of the 4 nearest weeks this dorm ordered the item
+      usualQty(dormId, productId, date) {
+        const list = near(qtyRows.filter((r) => r.dorm_id === dormId && r.product_id === productId), date).slice(0, 4);
+        return list.length ? round3(list.reduce((t, r) => t + r.qty, 0) / list.length) : null;
+      },
+    };
+  }
+
+  // book: { file, sheets: [{ name, rows }] } from excel.readWorkbook → the first draft and its check.
+  function startImport(book) {
+    if (!book || !Array.isArray(book.sheets) || !book.sheets.length) throw new UserError('This workbook has no sheets to read.');
+    const ctx = importContext();
+    const draft = importer.buildDraft(book, ctx);
+    return { draft, check: importer.validate(draft, ctx) };
+  }
+
+  // The screen sends the edited draft back after every change.
+  const checkImport = (draft) => importer.validate(draft, importContext());
+
+  // Save the week: invoices locked as 'imported' (printed_at = week date), lines with the recalculated
+  // amounts, the file's prices as this week's prices (current item prices unchanged), new items if any,
+  // and a summary in change_log ('past_week': file, auto-fixes, item mappings, skipped sheets).
+  function importWeek(draft) {
+    return store.tx(() => {
+      const v = importer.validate(draft, importContext());
+      if (v.blocking.length) throw new UserError(`Not imported: ${v.blocking[0]}${v.blocking.length > 1 ? ` (and ${v.blocking.length - 1} more)` : ''}`);
+      if (v.warnings) throw new UserError(`Not imported: ${v.warnings} warning${v.warnings === 1 ? ' needs' : 's need'} a decision first.`);
+      const p = importer.plan(draft, v);
+      paidCheck(p.date);
+      const newIds = new Map();
+      for (const c of p.created) {
+        const clash = store.get('SELECT id FROM products WHERE lower(code) = lower(?)', [c.code]);
+        if (clash) { newIds.set(importer.norm(c.code), clash.id); continue; }
+        const sort = (store.get('SELECT MAX(sort) AS m FROM products').m || 0) + 1;
+        newIds.set(importer.norm(c.code), store.run('INSERT INTO products (code, name, unit, series, price, sort) VALUES (?, ?, ?, ?, ?, ?)',
+          [c.code, c.name, c.unit || 'Kg', c.series, c.price, sort]).lastId);
+      }
+      const pid = (l) => l.product_id || newIds.get(importer.norm(l.newCode));
+      const filePrices = new Map();
+      for (const [key, price] of p.prices) filePrices.set(typeof key === 'number' ? key : newIds.get(key.slice(4)), price);
+      const weekId = createPastWeekRow(p.date, p.summary, filePrices);
+      for (const inv of p.invoices) {
+        const id = store.run('INSERT INTO invoices (series, number, week_id, dorm_id, vehicle, printed_at) VALUES (?, ?, ?, ?, ?, ?)',
+          [inv.series, inv.number, weekId, inv.dorm_id, inv.vehicle, p.date]).lastId;
+        for (const l of inv.lines) {
+          store.run('INSERT INTO invoice_lines (invoice_id, product_id, qty, unit_price) VALUES (?, ?, ?, ?)', [id, pid(l), l.qty, l.unit_price]);
+        }
+        log(id, 'imported', JSON.stringify({ mode: 'excel', file: p.summary.file, sheet: inv.sheet, cook_name: '' }));
+      }
+      return { weekId, summary: p.summary };
+    });
+  }
+
   // ---------- weeks ----------
   const everPrinted = (weekId) => !!store.get(`
     SELECT 1 AS x FROM invoices i WHERE i.week_id = ? AND (i.printed_at IS NOT NULL
@@ -826,7 +901,7 @@ function createService(store) {
     bootstrap, getSettings, saveSettings, listDorms, saveDorm, listProducts, saveProduct, deleteProduct,
     nextWeekPlan, newWeek, deleteWeek, listWeeks, getWeek, copyLastWeek, setQty, setWeekPrice, setInvoiceFields,
     correctInvoices, markPrinted, unlockWeek, getLog, listMonths, monthly, setPayment, logStatement,
-    checkPastWeek, addPastWeek, finishPastWeek, deletePastWeek, missingWeeks,
+    checkPastWeek, addPastWeek, finishPastWeek, deletePastWeek, missingWeeks, startImport, checkImport, importWeek,
   };
 }
 

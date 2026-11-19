@@ -7,6 +7,7 @@ const path = require('path');
 const { openSqlJs } = require('./store');
 const { createService, UserError } = require('./service');
 const { makeBackup, isSqliteFile } = require('./backup');
+const { readWorkbook } = require('./excel');
 
 const DATA_DIR = path.join(app.getPath('documents'), 'Daily Fresher Invoices');
 const DB_PATH = path.join(DATA_DIR, 'daily-fresher.db');
@@ -20,7 +21,7 @@ const ALLOWED = new Set([
   'bootstrap', 'getSettings', 'saveSettings', 'listDorms', 'saveDorm', 'listProducts', 'saveProduct', 'deleteProduct',
   'nextWeekPlan', 'newWeek', 'deleteWeek', 'listWeeks', 'getWeek', 'copyLastWeek', 'setQty', 'setWeekPrice', 'setInvoiceFields',
   'markPrinted', 'unlockWeek', 'getLog', 'listMonths', 'monthly', 'setPayment', 'correctInvoices', 'logStatement',
-  'checkPastWeek', 'addPastWeek', 'finishPastWeek', 'deletePastWeek', 'missingWeeks',
+  'checkPastWeek', 'addPastWeek', 'finishPastWeek', 'deletePastWeek', 'missingWeeks', 'checkImport', 'importWeek',
 ]);
 
 function wrap(fn) {
@@ -72,6 +73,24 @@ ipcMain.handle('print', (_e, html, mode, fileName, paper) => wrap(async () => {
     pw.destroy();
     fs.rm(tmp, () => {});
   }
+})());
+
+// ---- import a past week from Excel ----
+// Opens the file picker, reads the visible cells of every sheet, and returns the first draft + check
+// (service.startImport). Nothing is saved until importWeek.
+ipcMain.handle('openExcel', () => wrap(async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    title: 'Choose an Excel receipt file', defaultPath: app.getPath('downloads'),
+    filters: [{ name: 'Excel workbook', extensions: ['xlsx', 'xls'] }], properties: ['openFile'],
+  });
+  if (canceled || !filePaths[0]) return null;
+  let book;
+  try {
+    book = readWorkbook(filePaths[0]);
+  } catch (err) {
+    throw new UserError(`${path.basename(filePaths[0])} could not be read as an Excel workbook (${err.message}).`);
+  }
+  return svc.startImport({ file: path.basename(filePaths[0]), ...book });
 })());
 
 // ---- data & backups ----

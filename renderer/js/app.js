@@ -26,6 +26,8 @@ const App = {
     const nav = App.back && (view === 'week' || view === 'invoice') ? 'history' : view;
     U.$$('#nav a').forEach((a) => a.classList.toggle('on', a.dataset.view === nav));
     const main = U.$('#main');
+    main.onclick = null;     // a screen's own handlers on #main (the Excel import uses them) never leak into the next one
+    main.onchange = null;
     try {
       await Views[view].render(main);
     } catch (err) {
@@ -71,7 +73,7 @@ const App = {
     if (App.view === 'settings' && !(await Views.settings.canLeave())) return;
     App.back = null;
     if ((view === 'week' || view === 'invoice') && App.state && App.state.weeks.length) App.weekId = App.state.weeks[0].id;
-    if (view === 'history') { Views.history.weekId = null; Views.history.edit = null; }
+    if (view === 'history') { Views.history.weekId = null; Views.history.edit = null; Views.history.imp = null; }
     if (view === 'monthly') Views.monthly.month = null;
     App.go(view);
   },

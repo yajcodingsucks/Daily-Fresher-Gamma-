@@ -534,3 +534,128 @@ test('a past week can be typed in unlocked, then finished (locked) or deleted wh
   assert.deepStrictEqual(svc.listWeeks().map((x) => x.date), ['2026-11-27', '2026-11-20']);
   assert.ok(svc.checkPastWeek({ date: '2026-11-13', dfStart: 485, invStart: 336 }).ok);   // its numbers are free again
 });
+
+// ---------- import from Excel ----------
+const importer = require('../main/importer');
+const { readWorkbook } = require('../main/excel');
+const XLSX = require('xlsx');
+
+// A sheet laid out like Receipt Format02.xlsx (with the wrong white "Belle Vue No:1" text in column B).
+const xsheet = (name, header, dormLine, items, excelTotal) => ({ name, rows: [
+  ['    daily fresher ltd'], ['  DEALER IN LOCAL AND IMPORTED VEGETBALES & FRUITS'], [null],
+  ...(Array.isArray(header) ? [header] : [[header]]), [null],
+  ['GAMMA CONSTRUCTION LTD'], [`DORMITORY- ${dormLine}`], ['NO 1', 'Gamma Construction Ltd Belle Vue No:1'],
+  ['Item Code', 'Description', 'Invoice Qty', 'Unit Type', 'Unit Price\n (RS)', 'Amount\n (Rs)'],
+  ...items, [null, null, null, null, null, null],
+  [null, null, null, null, 'Total', excelTotal], ['Note:Goods once sold and delivered are not refunable.', null, null, null, ' Part Payment', null],
+  [null, null, null, null, 'Total', excelTotal], ['Delivered by Vehicle No: 9528 JU 2025'],
+] });
+const belleDf = () => xsheet('Belle- Vue ', 'Original             Sales Invoice     DF- 494   DATE:  20.11.2026', 'BELLE-VUE',
+  [['Veg- Chou', 'Chouchou', 10, 'kgs', 60, 590], ['veg-brin', 'Bringelle', 14, 'Kgs', 60, 840], [null, null, null, null, null, null]], 9999);
+const belleInv = () => xsheet('Belle-Vue DF', ['Original', ' Sales Invoice   INV- 345     DATE:  20.11.2026 '], 'BELLE-VUE',
+  [['VegOni', 'Onions', 45, 'Kg', 50, 2250], ['Veg-PDT', 'Pomme de Terre', 75, 'Kg', 50, 3750]], 6000);
+const expat = () => xsheet('New Expat ', '    Sales Invoice     DF-422      Date: 18.09.2026', 'FLOREAL - NEW EXPAT',
+  [['Veg-Hari', 'Haricot Tan', 3, 'kgs', 110, 330]], 330);
+
+test('import: fields are found by their labels; DD/MM text dates, DD.MM dates and real Excel dates are read day first', () => {
+  const a = importer.parseSheet(xsheet('Coromandel DF', ['Original', '  Sales Invoice     INV- 350     Date: 05/11/2026'], 'COROMANDEL', [['VegOni', 'Onions', 20, 'Kg', 50, 1000]], 1000));
+  assert.deepStrictEqual(a.number, { series: 'INV', n: 350 });
+  assert.strictEqual(a.date, '2026-11-05');                    // 5 November, not 11 May
+  assert.strictEqual(a.dateSwap, '2026-05-11');
+  assert.strictEqual(a.dorm_line, 'COROMANDEL');
+  assert.strictEqual(a.vehicle, '9528 JU 2025');
+  assert.strictEqual(a.lines.length, 1);                       // the totals block is not an item
+  assert.strictEqual(importer.parseSheet(xsheet('S', 'Sales Invoice DF -496 Date: 06.11.2026', 'CHEBEL', [], 0)).date, '2026-11-06');
+  const real = importer.parseSheet(xsheet('S', ['Original', 'Sales Invoice', 'DF-501', 'DATE:', { date: '2026-11-20' }], 'NEW-GROVE', [], 0));
+  assert.strictEqual(real.date, '2026-11-20');
+  // the reader: a real .xlsx with a date cell, a merged cell hiding text, and a hidden row
+  const ws = XLSX.utils.aoa_to_sheet([['Sales Invoice DF-501 Date:', new Date(Date.UTC(2026, 10, 20))], ['shown', 'hidden by merge'], ['hidden row']], { cellDates: true });
+  ws['!merges'] = [{ s: { r: 1, c: 0 }, e: { r: 1, c: 1 } }];
+  ws['!rows'] = [null, null, { hidden: true }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Test');
+  const book = readWorkbook(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx', cellDates: true }));
+  assert.deepStrictEqual(book.sheets[0].rows[0][1], { date: '2026-11-20' });
+  assert.deepStrictEqual(book.sheets[0].rows[1], ['shown', null]);
+  assert.deepStrictEqual(book.sheets[0].rows[2], [null, null]);
+});
+
+test('import: codes with spaces match, units and numbers are tidied, amounts are qty × price (never the Excel totals)', () => {
+  const svc = fresh();
+  const { check } = svc.startImport({ file: 'Receipt.xlsx', sheets: [belleDf(), belleInv()] });
+  const df = check.sheets[0];
+  assert.strictEqual(df.numberText, 'DF-494');
+  assert.strictEqual(df.dorm, 'Belle-Vue');                     // from the sheet name and the dormitory line
+  assert.deepStrictEqual(df.lines.map((l) => l.product.code), ['Veg-Chou', 'Veg-Brin']);
+  assert.deepStrictEqual(df.lines.map((l) => l.amount), [600, 840]);
+  assert.strictEqual(df.total, 1440);                           // not Excel's 9999
+  assert.ok(df.fixes.includes('Number "DF- 494" → DF-494'));
+  assert.ok(df.fixes.includes('Code "Veg- Chou" → Veg-Chou'));
+  assert.ok(df.fixes.some((f) => f.startsWith('Unit kgs / Kgs → Kg')));
+  assert.ok(df.fixes.some((f) => f.includes('Excel said 590.00')));
+  assert.strictEqual(check.sheets[1].lines[0].product.code, 'Veg-Oni');   // "VegOni"
+  assert.strictEqual(check.canImport, true);
+  assert.deepStrictEqual([check.df.from, check.inv.from, check.df.total, check.inv.total], [494, 345, 1440, 6000]);
+});
+
+test('import: duplicate numbers, numbers already in the app, wrong items and an existing week block the import', () => {
+  const svc = fresh();
+  const twice = belleInv();
+  twice.name = "Poudre D'or DF";
+  twice.rows[6] = ["DORMITORY- POUDRE D'OR"];
+  let r = svc.startImport({ file: 'x.xlsx', sheets: [belleDf(), belleInv(), twice] });
+  assert.ok(r.check.blocking.some((b) => /INV-345 is used twice in the file/.test(b)));
+  assert.strictEqual(r.check.canImport, false);
+  assert.throws(() => svc.importWeek(r.draft), /Not imported: .*used twice/);
+  const wrong = belleDf();
+  wrong.rows[10] = ['Veg-Oni', 'Onions', 5, 'Kg', 50, 250];   // onions on a DF invoice
+  r = svc.startImport({ file: 'x.xlsx', sheets: [wrong] });
+  assert.ok(r.check.blocking.some((b) => /Onions is an onions & potatoes \(INV\) item/.test(b)));
+  svc.newWeek();                                                // 27.11: DF-503..
+  svc.addPastWeek({ date: '2026-11-20', dfStart: 494, invStart: 345 });
+  r = svc.startImport({ file: 'x.xlsx', sheets: [belleDf()] });
+  assert.ok(r.check.blocking.some((b) => /already a week on 20\.11\.2026/.test(b)));
+  assert.ok(r.check.blocking.some((b) => /DF-494 is already in the app/.test(b)));
+  assert.throws(() => svc.importWeek(r.draft), /Not imported/);
+});
+
+test('import: a skipped sheet creates no invoice; the week is saved locked, with the file prices and a summary', () => {
+  const svc = fresh();
+  const { draft, check } = svc.startImport({ file: 'Receipt Format02.xlsx', sheets: [belleDf(), belleInv(), expat()] });
+  assert.strictEqual(check.canImport, false);                   // New Expat: not a dorm, other date → decide
+  const ex = check.sheets[2];
+  assert.ok(ex.warnings.some((w) => /not one of the dormitories/.test(w.text)));
+  assert.ok(ex.warnings.some((w) => /dated 18\.09\.2026/.test(w.text)));
+  draft.sheets[2].skip = true;
+  draft.sheets[0].lines[1].price = 65;                          // an edit on the preview
+  const v = svc.checkImport(draft);
+  assert.strictEqual(v.canImport, true);
+  const { weekId, summary } = svc.importWeek(draft);
+  const w = svc.getWeek(weekId);
+  assert.strictEqual(w.week.date, '2026-11-20');
+  assert.deepStrictEqual(w.invoices.map((i) => `${i.series}-${i.number}`).sort(), ['DF-494', 'INV-345']);   // nothing from New Expat
+  assert.ok(w.invoices.every((i) => i.printed_at === '2026-11-20'));
+  assert.strictEqual(w.invoices.find((i) => i.series === 'DF').total, 600 + 14 * 65);
+  assert.strictEqual(w.prices[prod(svc, 'Veg-Brin').id], 65);  // this week's price from the file
+  assert.strictEqual(prod(svc, 'Veg-Brin').price, 60);          // the current price is unchanged
+  assert.deepStrictEqual(summary.skipped, ['New Expat']);
+  assert.strictEqual(w.past.mode, 'excel');
+  assert.strictEqual(w.past.file, 'Receipt Format02.xlsx');
+  assert.ok(w.past.autofixes >= 4);
+  assert.strictEqual(svc.getLog(weekId).filter((c) => c.action === 'imported').length, 2);
+  assert.throws(() => svc.setQty(w.invoices[0].id, prod(svc, 'Veg-Brin').id, 1), /locked/);
+  assert.deepStrictEqual(svc.nextWeekPlan(), { date: '2026-11-27', dfStart: 503, invStart: 354, dormCount: 9 });
+});
+
+test('import: an unknown item code can be matched to an item, and the choice is kept in the summary', () => {
+  const svc = fresh();
+  const s = belleDf();
+  s.rows[10] = ['Veg- Pomme', "Pomme D'Amour", 8, 'kgs', 50, 400];
+  const { draft, check } = svc.startImport({ file: 'x.xlsx', sheets: [s] });
+  const w = check.sheets[0].warnings.find((x) => x.kind === 'map');
+  assert.ok(w && /Unknown item code "Veg- Pomme"/.test(w.text));
+  const use = w.options.find((o) => o.label.startsWith("Use Pomme D'Amour"));
+  Object.assign(draft.sheets[0].lines.find((l) => l.idx === use.line), use.set);
+  const { weekId } = svc.importWeek(draft);
+  assert.deepStrictEqual(svc.getWeek(weekId).past.mappings.map((m) => `${m.from} → ${m.to}`), ["Veg- Pomme → Veg-PdAmo"]);
+});

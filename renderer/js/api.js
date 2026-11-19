@@ -18,11 +18,12 @@ const API = {
   'bootstrap', 'getSettings', 'saveSettings', 'listDorms', 'saveDorm', 'listProducts', 'saveProduct', 'deleteProduct',
   'nextWeekPlan', 'newWeek', 'deleteWeek', 'listWeeks', 'getWeek', 'copyLastWeek', 'setQty', 'setWeekPrice', 'setInvoiceFields',
   'markPrinted', 'unlockWeek', 'getLog', 'listMonths', 'monthly', 'setPayment', 'correctInvoices', 'logStatement',
-  'checkPastWeek', 'addPastWeek', 'finishPastWeek', 'deletePastWeek', 'missingWeeks',
+  'checkPastWeek', 'addPastWeek', 'finishPastWeek', 'deletePastWeek', 'missingWeeks', 'checkImport', 'importWeek',
 ].forEach((m) => { API[m] = (...a) => API.call(m, ...a); });
 
 API.print = (html, mode, fileName, paper) => API.raw('print', html, mode, fileName, paper);
 API.dataInfo = () => API.raw('dataInfo');
+API.openExcel = () => API.raw('openExcel');
 API.backupNow = () => API.raw('backupNow');
 API.restoreBackup = () => API.raw('restoreBackup');
 API.openDataFolder = () => API.raw('openDataFolder');
