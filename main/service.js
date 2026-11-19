@@ -28,7 +28,7 @@ function createService(store) {
   // Older databases: add the columns that came later (e.g. dorms.cook_name).
   for (const [table, column, def] of schema.added) {
     if (!store.all(`PRAGMA table_info(${table})`).some((c) => c.name === column)) {
-      store.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
+      store.tx(() => store.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`));   // tx: written to disk at once
     }
   }
   if (!store.get('SELECT 1 AS x FROM settings LIMIT 1')) {
