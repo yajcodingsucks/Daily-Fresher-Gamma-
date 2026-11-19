@@ -1,0 +1,36 @@
+{
+  "name": "daily-fresher-invoices",
+  "version": "0.1.0",
+  "description": "Weekly DF / INV invoices, receipts and monthly statements for Daily Fresher Ltd",
+  "main": "main/main.js",
+  "author": "Daily Fresher Ltd",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "dist": "electron-builder --win portable"
+  },
+  "dependencies": {
+    "sql.js": "^1.12.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "mu.dailyfresher.invoices",
+    "productName": "Daily Fresher Invoices",
+    "files": [
+      "main/**/*",
+      "renderer/**/*",
+      "package.json",
+      "node_modules/sql.js/dist/sql-wasm.js",
+      "node_modules/sql.js/dist/sql-wasm.wasm",
+      "node_modules/sql.js/package.json"
+    ],
+    "win": {
+      "target": "portable"
+    }
+  }
+}

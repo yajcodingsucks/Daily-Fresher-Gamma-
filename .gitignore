@@ -1,0 +1,14 @@
+node_modules/
+dist/
+out/
+
+# Business data stays on the laptop, never on GitHub
+*.db
+*.db-journal
+backups/
+
+.DS_Store
+Thumbs.db
+.vscode/
+*.log
+test/out/
