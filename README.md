@@ -42,7 +42,11 @@ so you know to reprint it.
   PDF, nothing is marked as printed). Choose a layout (*Modern blue*, *Classic (Excel)*, *Simple B&W*), colour, logo
   (PNG/JPG up to 1 MB), text size, what is shown (badge, emails, BRN, delivery box, vehicle, row numbers, part payment,
   amount in words, signatures, acknowledgment, footer, COPY watermark), the table columns and their order (drag ⋮⋮),
-  the wording, 0–6 signature lines, paper (A4 / A5 / Letter), margins, Original only or Original + Copy, and empty rows.
+  the wording, paper (A4 / A5 / Letter), margins, Original only or Original + Copy, and empty rows.
+- **Receipt format → Signatures**: 0–6 signature lines (label, and a name above the line: none, a blank "Name: ____" to
+  write in, or the dorm's cook's name; drag ⠿ to reorder), their position (one row, 2 per row, Excel style, stacked left,
+  stacked right, or pinned to the bottom of the page), and each dorm's cook's name (also on the Dormitories tab).
+  The acknowledgment line stays under the signatures.
   Long invoices are kept on one page by making the rows a little lower. *Reset to default* puts back the original design.
 - **Statement format**: colour, logo on/off, title and footer, and whether to print the summary-by-dorm page and the
   payment boxes, with a live preview of the latest month.
@@ -103,7 +107,7 @@ test/
 
 The screens never touch the database directly — they ask `service.js`, which decides what is allowed.
 
-Audit trail: everything sensitive is written to the `change_log` table — `printed`, `unlocked` (with the reason),
+Audit trail: everything sensitive is written to the `change_log` table — `printed` (with the cook's name printed on it, so reprints show the same name), `unlocked` (with the reason),
 `corrected` (JSON with the reason and the invoice before and after) and `statement_printed` (each statement print / PDF).
 
 The receipt and statement look are stored in the `settings` table as JSON (`receipt_format`, `statement_format`).

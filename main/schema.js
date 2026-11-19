@@ -1,6 +1,6 @@
 // Database tables. Run once when the database is created (and safely re-run on every start).
 
-module.exports = `
+const sql = `
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT
@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS dorms (
   name           TEXT NOT NULL,          -- name printed on the receipt
   statement_name TEXT NOT NULL,          -- name used on the monthly statement
   vehicle        TEXT NOT NULL DEFAULT '',
-  active         INTEGER NOT NULL DEFAULT 1
+  active         INTEGER NOT NULL DEFAULT 1,
+  cook_name      TEXT DEFAULT ''         -- printed as "Name:" on a "Cook's name" signature line
 );
 
 CREATE TABLE IF NOT EXISTS products (
@@ -85,3 +86,10 @@ CREATE TABLE IF NOT EXISTS change_log (
   detail     TEXT
 );
 `;
+
+// Columns added after the first version: [table, column, definition]. Added on start when missing.
+const added = [
+  ['dorms', 'cook_name', "TEXT DEFAULT ''"],
+];
+
+module.exports = { sql, added };

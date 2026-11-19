@@ -22,6 +22,13 @@ Views.settings = {
     ['footer', 'Footer'], ['watermark', 'COPY watermark'],
   ],
 
+  NAME_OPTIONS: [['none', 'No name'], ['blank', 'Blank line to write name'], ['cook', "Cook's name (from dorm)"]],
+  POSITIONS: [
+    ['row', 'One row'], ['two', '2 per row'], ['excel', 'Excel style'],
+    ['left', 'Stacked left'], ['right', 'Stacked right'], ['bottom', 'Bottom of page'],
+  ],
+
+  sub: 'design',     // Receipt format sub-tab: design | sigs
   draft: null,       // receipt format being edited
   sdraft: null,      // statement format being edited
   dirty: false,      // unsaved changes on the open tab
@@ -133,18 +140,19 @@ Views.settings = {
     const V = Views.settings;
     V.setTop('Changes save automatically and apply to new weeks.', '<button class="btn p" id="addDorm">＋ Add dormitory</button>');
     body.innerHTML = `<div class="card"><h3>Dormitories</h3>
-    <table id="dorms"><thead><tr><th style="width:70px">No</th><th>Name on receipt</th><th>Name on statement</th><th>Usual vehicle</th><th class="c">Active</th></tr></thead>
+    <table id="dorms"><thead><tr><th style="width:70px">No</th><th>Name on receipt</th><th>Name on statement</th><th>Usual vehicle</th><th>Cook's name</th><th class="c">Active</th></tr></thead>
     <tbody>${App.state.dorms.map((d) => `<tr data-id="${d.id}">
       <td><input class="inp" name="no" value="${d.no}"></td><td><input class="inp" name="name" value="${U.esc(d.name)}"></td>
       <td><input class="inp" name="statement_name" value="${U.esc(d.statement_name)}"></td>
       <td><input class="inp" name="vehicle" value="${U.esc(d.vehicle)}"></td>
+      <td><input class="inp" name="cook_name" value="${U.esc(d.cook_name || '')}" placeholder="—"></td>
       <td class="c"><input type="checkbox" name="active" ${d.active ? 'checked' : ''}></td></tr>`).join('')}</tbody></table></div>`;
 
     U.$('#dorms').addEventListener('change', async (e) => {
       const tr = e.target.closest('tr[data-id]');
       const get = (n) => U.$(`[name="${n}"]`, tr);
       const d = { id: Number(tr.dataset.id), no: Number(get('no').value), name: get('name').value,
-        statement_name: get('statement_name').value, vehicle: get('vehicle').value, active: get('active').checked };
+        statement_name: get('statement_name').value, vehicle: get('vehicle').value, cook_name: get('cook_name').value, active: get('active').checked };
       const ok = await App.run(() => API.saveDorm(d), 'Dormitory saved.');
       await App.refresh();
       if (ok === undefined) V.render(main);
@@ -245,7 +253,11 @@ Views.settings = {
   previewHtml(script) {
     const V = Views.settings;
     const S = { ...App.state.settings, receipt_format: V.draft };
-    return Receipt.build(S, V.sample.week, [V.sample[V.pvSeries].inv], V.sample.products, [V.pvLabel], { script });
+    // the cook's name a print made now would show
+    const inv = { ...V.sample[V.pvSeries].inv };
+    const dorm = App.state.dorms.find((d) => d.no === inv.dorm_no);
+    inv.cook_name = dorm ? dorm.cook_name || '' : '';
+    return Receipt.build(S, V.sample.week, [inv], V.sample.products, [V.pvLabel], { script });
   },
 
   preview() {
@@ -273,7 +285,7 @@ Views.settings = {
     const colOn = (k) => f.columns.find((c) => c.key === k).on;
     const isOn = (k) => (k === 'row_numbers' ? colOn('no') : f.show[k]);
     const always = ['desc', 'amount'];
-    opts.innerHTML = `
+    const design = `
 <section class="card fsec"><h3>Layout</h3>
   <div class="tpls">${V.TEMPLATES.map((t) => `<button class="tpl ${f.template === t.key ? 'on' : ''}" data-tpl="${t.key}">
     <span class="thumb ${t.key}" style="--c:${t.key === 'simple' ? '#222' : f.color}"><i class="h"></i><i class="l"></i><i class="t"></i><i class="t"></i><i class="t"></i><i class="s"></i></span>
@@ -305,18 +317,47 @@ Views.settings = {
   <div class="field"><label>Acknowledgment</label><input class="inp" data-w="acknowledgment" value="${U.esc(f.acknowledgment)}"></div>
   <div class="field"><label>Footer</label><input class="inp" data-w="footer" value="${U.esc(f.footer)}"></div>
 </section>
-<section class="card fsec"><h3>Signature lines <span class="small muted">${f.signatures.length} of 6</span></h3>
-  <div class="dlist" data-list="signatures">${f.signatures.map((t, i) => `<div class="drow" data-i="${i}"><span class="grip" title="Drag to move">⋮⋮</span>
-    <input class="inp" data-sig="${i}" value="${U.esc(t)}"><button class="btn sm" data-sigdel="${i}" title="Remove this line">✕</button></div>`).join('')
-    || '<p class="small muted">No signature lines.</p>'}</div>
-  <button class="btn sm" id="sigAdd" ${f.signatures.length >= 6 ? 'disabled' : ''}>＋ Add signature line</button>
-</section>
 <section class="card fsec"><h3>Paper &amp; printing</h3>
   <div class="field"><label>Paper</label>${V.seg(f, 'paper', [['A4', 'A4'], ['A5', 'A5'], ['Letter', 'Letter']])}</div>
   <div class="field"><label>Margins</label>${V.seg(f, 'margins', [['narrow', 'Narrow'], ['normal', 'Normal'], ['wide', 'Wide']])}</div>
   <div class="field"><label>Copies</label>${V.seg(f, 'copies', [['original', 'Original only'], ['original_copy', 'Original + Copy']])}</div>
   <div class="field"><label>Empty rows</label>${V.seg(f, 'empty_rows', [['none', 'None'], ['fill15', 'Fill to 15 rows']])}</div>
 </section>`;
+
+    const sigs = `
+${f.show.signatures ? '' : `<div class="warnbox small">Signatures are switched off under <b>Design → Show on receipt</b>, so none are printed.
+  <button class="btn sm" id="sigsOn">Switch on</button></div>`}
+<section class="card fsec"><h3>Signature lines <span class="small muted">${f.signatures.length} of 6</span></h3>
+  <p class="small muted" style="margin-top:-6px">Drag <b>⠿</b> to change the order. The name is printed above the line.</p>
+  <div class="dlist" data-list="signatures">${f.signatures.map((l, i) => `<div class="drow sigrow" data-i="${i}"><span class="grip" title="Drag to move">⠿</span>
+    <div class="sigf"><input class="inp" data-sig="${i}" value="${U.esc(l.label)}" placeholder="Label under the line">
+      <select class="inp" data-signame="${i}">${V.NAME_OPTIONS.map(([v, t]) => `<option value="${v}" ${l.name === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+    <button class="btn sm" data-sigdel="${i}" title="Remove this line">✕</button></div>`).join('')
+    || '<p class="small muted">No signature lines.</p>'}</div>
+  <button class="btn sm" id="sigAdd" ${f.signatures.length >= 6 ? 'disabled' : ''}>＋ Add signature line</button>
+</section>
+<section class="card fsec"><h3>Position</h3>
+  <div class="poss">${V.POSITIONS.map(([k, label]) => `<button class="pos ${f.sig_position === k ? 'on' : ''}" data-pos="${k}">
+    <span class="pthumb p-${k}"><i></i><i></i><i></i></span><b>${label}</b></button>`).join('')}</div>
+  <p class="small muted" style="margin:8px 0 0">${{
+    row: 'All lines side by side under the totals.',
+    two: 'Two lines per row, like the first version of the app.',
+    excel: 'The first two on one line, the others stacked under them on the right, like the Excel receipt.',
+    left: 'One under the other, on the left.',
+    right: 'One under the other, on the right.',
+    bottom: 'In one row at the bottom of the page, whatever the length of the invoice.',
+  }[f.sig_position]} The acknowledgment line stays under them.</p>
+</section>
+<section class="card fsec"><h3>Cook names</h3>
+  <p class="small muted" style="margin-top:-6px">Printed on a <b>Cook's name</b> line. Saved straight away (also on the Dormitories tab).
+    Printed invoices keep the name they were printed with.</p>
+  ${App.state.dorms.map((d) => `<div class="cook-row ${d.active ? '' : 'muted'}"><label for="cook${d.id}">${d.no}. ${U.esc(d.name)}</label>
+    <input class="inp" id="cook${d.id}" data-cook="${d.id}" value="${U.esc(d.cook_name || '')}" placeholder="No name yet"></div>`).join('')}
+</section>`;
+
+    opts.innerHTML = `<div class="seg fmt-sub"><button data-sub="design" class="${V.sub === 'design' ? 'on' : ''}">Design</button>
+      <button data-sub="sigs" class="${V.sub === 'sigs' ? 'on' : ''}">Signatures</button></div>
+${V.sub === 'sigs' ? sigs : design}`;
     opts.scrollTop = keep;
   },
 
@@ -328,6 +369,11 @@ Views.settings = {
 
     opts.addEventListener('click', (e) => {
       const t = e.target;
+      const sub = t.closest('[data-sub]');
+      if (sub) { V.sub = sub.dataset.sub; opts.scrollTop = 0; V.drawOpts(); return undefined; }
+      const pos = t.closest('[data-pos]');
+      if (pos) { f().sig_position = pos.dataset.pos; return changed(true); }
+      if (t.id === 'sigsOn') { f().show.signatures = true; return changed(true); }
       const tpl = t.closest('[data-tpl]');
       if (tpl) { f().template = tpl.dataset.tpl; return changed(true); }
       const sw = t.closest('.swatch');
@@ -344,7 +390,7 @@ Views.settings = {
       if (del) { f().signatures.splice(Number(del.dataset.sigdel), 1); return changed(true); }
       if (t.id === 'sigAdd') {
         if (f().signatures.length >= 6) return undefined;
-        f().signatures.push('Signature');
+        f().signatures.push({ label: 'Signature', name: 'none' });
         changed(true);
         const inputs = U.$$('[data-sig]');
         const last = inputs[inputs.length - 1];
@@ -364,12 +410,14 @@ Views.settings = {
         return changed(false);
       }
       if (t.dataset.w) { f()[t.dataset.w] = t.value; return changed(false); }
-      if (t.dataset.sig !== undefined) { f().signatures[Number(t.dataset.sig)] = t.value; return changed(false); }
+      if (t.dataset.sig !== undefined) { f().signatures[Number(t.dataset.sig)].label = t.value; return changed(false); }
       return undefined;
     });
     opts.addEventListener('change', (e) => {
       const t = e.target;
       if (t.dataset.col) { f().columns.find((c) => c.key === t.dataset.col).on = t.checked; changed(true); }
+      if (t.dataset.signame !== undefined) { f().signatures[Number(t.dataset.signame)].name = t.value; changed(false); }
+      if (t.dataset.cook) V.saveCook(Number(t.dataset.cook), t.value);
       if (t.id === 'logoFile' && t.files[0]) V.readLogo(t.files[0]).then((url) => { if (url) { f().logo = url; changed(true); } });
     });
     V.bindDrag(opts, (list, from, to) => {
@@ -406,6 +454,16 @@ Views.settings = {
       await App.refresh();
       V.render(main);
     };
+  },
+
+  // Cook names are dorm details, so they save at once (not with the receipt format).
+  async saveCook(dormId, name) {
+    const d = App.state.dorms.find((x) => x.id === dormId);
+    if (!d) return;
+    if (await App.run(() => API.saveDorm({ ...d, cook_name: name }), name.trim() ? `Cook's name saved for ${d.name}.` : `Cook's name removed for ${d.name}.`) === undefined) return;
+    const dorms = await API.listDorms();
+    App.state.dorms = dorms;
+    Views.settings.schedulePreview();
   },
 
   // Drag-and-drop to reorder the rows of a .dlist (only by the ⋮⋮ grip, so typing in a row still works).

@@ -24,7 +24,13 @@ class UserError extends Error {}
 
 function createService(store) {
   // ---------- setup ----------
-  store.exec(schema);
+  store.exec(schema.sql);
+  // Older databases: add the columns that came later (e.g. dorms.cook_name).
+  for (const [table, column, def] of schema.added) {
+    if (!store.all(`PRAGMA table_info(${table})`).some((c) => c.name === column)) {
+      store.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
+    }
+  }
   if (!store.get('SELECT 1 AS x FROM settings LIMIT 1')) {
     store.tx(() => {
       for (const [k, v] of Object.entries(seed.settings)) {
@@ -123,12 +129,16 @@ function createService(store) {
     return store.tx(() => {
       const clash = store.get('SELECT id FROM dorms WHERE no = ? AND id <> ?', [no, d.id || 0]);
       if (clash) throw new UserError(`Dormitory No ${no} already exists.`);
+      // cook_name: left as it is when not given
+      const cook = d.cook_name === undefined || d.cook_name === null ? null : String(d.cook_name).trim().slice(0, 60);
       const vals = [no, name, stmt, String(d.vehicle || '').trim(), d.active === false || d.active === 0 ? 0 : 1];
       if (d.id) {
-        store.run('UPDATE dorms SET no = ?, name = ?, statement_name = ?, vehicle = ?, active = ? WHERE id = ?', [...vals, d.id]);
+        store.run(`UPDATE dorms SET no = ?, name = ?, statement_name = ?, vehicle = ?, active = ?, cook_name = COALESCE(?, cook_name)
+                   WHERE id = ?`, [...vals, cook, d.id]);
         return d.id;
       }
-      return store.run('INSERT INTO dorms (no, name, statement_name, vehicle, active) VALUES (?, ?, ?, ?, ?)', vals).lastId;
+      return store.run('INSERT INTO dorms (no, name, statement_name, vehicle, active, cook_name) VALUES (?, ?, ?, ?, ?, ?)',
+        [...vals, cook || '']).lastId;
     });
   }
 
@@ -273,9 +283,16 @@ function createService(store) {
     const next = store.get('SELECT id, date FROM weeks WHERE date > ? ORDER BY date ASC LIMIT 1', [week.date]);
 
     const invoices = store.all(`
-      SELECT i.*, d.no AS dorm_no, d.name AS dorm_name, d.statement_name
+      SELECT i.*, d.no AS dorm_no, d.name AS dorm_name, d.statement_name, d.cook_name AS dorm_cook
       FROM invoices i JOIN dorms d ON d.id = i.dorm_id
       WHERE i.week_id = ? ORDER BY i.series DESC, d.no`, [weekId]);
+    // The cook's name saved when each invoice was printed (newest print wins).
+    const printedCook = new Map();
+    for (const c of store.all(`SELECT c.invoice_id, c.detail FROM change_log c JOIN invoices i ON i.id = c.invoice_id
+      WHERE i.week_id = ? AND c.action = 'printed' ORDER BY c.id`, [weekId])) {
+      const d = parse(c.detail);
+      if (typeof d.cook_name === 'string') printedCook.set(c.invoice_id, d.cook_name);
+    }
     const lines = store.all(`
       SELECT l.* FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id WHERE i.week_id = ?`, [weekId]);
     const corrections = store.all(`
@@ -285,6 +302,10 @@ function createService(store) {
       inv.lines = lines.filter((l) => l.invoice_id === inv.id);
       inv.total = round2(inv.lines.reduce((s, l) => s + round2(l.qty * l.unit_price), 0));
       inv.balance = round2(inv.total - inv.part_payment);
+      // A printed invoice keeps the cook's name it was printed with, so reprints match the paper copy.
+      // Not printed yet (or printed before names were saved): the dorm's cook name now.
+      inv.cook_name = inv.printed_at && printedCook.has(inv.id) ? printedCook.get(inv.id) : (inv.dorm_cook || '');
+      delete inv.dorm_cook;
       // Corrections of printed invoices: newest last. revised_at goes on reprinted copies.
       inv.corrections = corrections.filter((c) => c.invoice_id === inv.id).map((c) => ({ at: c.at, ...parse(c.detail) }));
       inv.revised_at = inv.corrections.length ? inv.corrections[inv.corrections.length - 1].at : null;
@@ -490,7 +511,10 @@ function createService(store) {
     return store.tx(() => {
       for (const id of invoiceIds) {
         const r = store.run('UPDATE invoices SET printed_at = ? WHERE id = ? AND printed_at IS NULL', [now(), id]);
-        if (r.changes) log(id, 'printed', null);
+        if (r.changes) {
+          const d = store.get('SELECT d.cook_name FROM invoices i JOIN dorms d ON d.id = i.dorm_id WHERE i.id = ?', [id]);
+          log(id, 'printed', JSON.stringify({ cook_name: (d && d.cook_name) || '' }));
+        }
       }
       return true;
     });

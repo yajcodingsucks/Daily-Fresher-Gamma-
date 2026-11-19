@@ -21,8 +21,14 @@ const DEFAULT_RECEIPT = {
   note: 'Note: Goods once sold and delivered are not refundable.',
   acknowledgment: 'Acknowledgment: all goods are received in good condition.',
   footer: 'Payment due monthly · Thank you for your business',
-  signatures: ['Driver Signature', 'Received By Cook', 'Signature', 'Signature'],
-  paper: 'A4',                   // A4 | A5 | Letter
+  // name: 'none' | 'blank' (an empty "Name: ____") | 'cook' ("Name: <cook name of the dorm>")
+  signatures: [
+    { label: 'Driver Signature', name: 'none' },
+    { label: 'Received By Cook', name: 'cook' },
+    { label: 'Supervisor Signature', name: 'none' },
+  ],
+  sig_position: 'row',           // row | two | excel | left | right | bottom
+  paper: 'A4',                  // A4 | A5 | Letter
   margins: 'normal',             // narrow | normal | wide
   copies: 'original_copy',       // original | original_copy
   empty_rows: 'none',            // none | fill15
@@ -40,7 +46,14 @@ const DEFAULT_STATEMENT = {
 // The settings keys used before receipt_format existed.
 const OLD_KEYS = ['color', 'note', 'acknowledgment', 'signature_labels', 'footer_text', 'show_footer', 'show_part_payment', 'print_copy'];
 
-const MAX_LOGO = 1400000;   // characters of data URL (a 1 MB picture)
+const NAME_OPTIONS = ['none', 'blank', 'cook'];
+const SIG_POSITIONS = ['row', 'two', 'excel', 'left', 'right', 'bottom'];
+// A signature line: { label, name }. Older formats saved just the label text.
+const sigLine = (s) => (s && typeof s === 'object'
+  ? { label: String(s.label ?? '').slice(0, 60), name: pick(s.name, NAME_OPTIONS, 'none') }
+  : { label: String(s ?? '').slice(0, 60), name: 'none' });
+
+const MAX_LOGO = 1400000;  // characters of data URL (a 1 MB picture)
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const pick = (v, list, def) => (list.includes(v) ? v : def);
 const isColor = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
@@ -75,8 +88,11 @@ function normalizeReceipt(f, strict = false, fail = (m) => { throw new Error(m);
   out.footer = text(f.footer, d.footer);
   if (Array.isArray(f.signatures)) {
     if (strict && f.signatures.length > 6) fail('There can be at most 6 signature lines.');
-    out.signatures = f.signatures.slice(0, 6).map((s) => String(s ?? '').slice(0, 60));
+    out.signatures = f.signatures.slice(0, 6).map(sigLine);
   }
+  // Formats saved before positions existed printed 2 signatures per row, so they keep that.
+  const legacy = Array.isArray(f.signatures) && !('sig_position' in f);
+  out.sig_position = pick(f.sig_position, SIG_POSITIONS, legacy ? 'two' : d.sig_position);
   out.paper = pick(f.paper, ['A4', 'A5', 'Letter'], d.paper);
   out.margins = pick(f.margins, ['narrow', 'normal', 'wide'], d.margins);
   out.copies = pick(f.copies, ['original', 'original_copy'], d.copies);
@@ -104,7 +120,8 @@ function fromOldKeys(old) {
   if (typeof old.note === 'string') r.note = old.note;
   if (typeof old.acknowledgment === 'string') r.acknowledgment = old.acknowledgment;
   if (typeof old.footer_text === 'string') r.footer = old.footer_text;
-  if (Array.isArray(old.signature_labels)) r.signatures = old.signature_labels.slice(0, 6).map(String);
+  if (Array.isArray(old.signature_labels)) r.signatures = old.signature_labels.slice(0, 6).map(sigLine);
+  r.sig_position = 'two';   // the old receipt printed 2 signatures per row
   if ('show_footer' in old) r.show.footer = !!old.show_footer;
   if ('show_part_payment' in old) r.show.part_payment = !!old.show_part_payment;
   if ('print_copy' in old) r.copies = old.print_copy ? 'original_copy' : 'original';
@@ -114,6 +131,6 @@ function fromOldKeys(old) {
 }
 
 module.exports = {
-  DEFAULT_RECEIPT, DEFAULT_STATEMENT, OLD_KEYS, COLUMN_KEYS, SHOW_KEYS,
+  DEFAULT_RECEIPT, DEFAULT_STATEMENT, OLD_KEYS, COLUMN_KEYS, SHOW_KEYS, NAME_OPTIONS, SIG_POSITIONS,
   normalizeReceipt, normalizeStatement, fromOldKeys,
 };

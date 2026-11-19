@@ -124,13 +124,25 @@ const Receipt = {
     return c.sh.amount_words ? `<div class="words">Amount in words: <b>${Receipt.words(c.inv.total)}</b></div>` : '';
   },
 
-  // Note, signatures, acknowledgment, footer, and the COPY watermark.
+  // A signature line: optional "Name:" above the line, then the label under it.
+  // 'cook' prints the dorm's cook name (the one saved when the invoice was printed), 'blank' an empty space to write.
+  sigLine(c, l) {
+    const { e, inv } = c;
+    const name = l.name === 'none' ? ''
+      : `<div class="nm">Name: ${l.name === 'cook' && inv.cook_name ? `<b>${e(inv.cook_name)}</b>` : '<span class="blank"></span>'}</div>`;
+    return `<div class="s">${name}<i></i>${e(l.label)}</div>`;
+  },
+
+  // Note, signatures (+ acknowledgment under them), footer, and the COPY watermark.
   bottom(c) {
     const { f, e, sh } = c;
     const sigs = sh.signatures ? f.signatures : [];
+    const sigHtml = sigs.length ? `<div class="sigs pos-${f.sig_position}">${sigs.map((l) => Receipt.sigLine(c, l)).join('')}</div>` : '';
+    const ack = sh.acknowledgment && f.acknowledgment ? `<div class="ack">${e(f.acknowledgment)}</div>` : '';
+    const pinned = sigs.length && f.sig_position === 'bottom';
     return `${f.note ? `<div class="note">${e(f.note)}</div>` : ''}
-${sigs.length ? `<div class="sigs">${sigs.map((t) => `<div class="s"><i></i>${e(t)}</div>`).join('')}</div>` : ''}
-${sh.acknowledgment && f.acknowledgment ? `<div class="ack">${e(f.acknowledgment)}</div>` : ''}
+${sigHtml || ack ? `<div class="sigblock${pinned ? ' pinned' : ''}">${sigHtml}
+${ack}</div>` : ''}
 ${sh.footer && f.footer ? `<footer>${e(f.footer)}</footer>` : ''}
 ${sh.watermark && c.isCopy ? '<div class="wm">COPY</div>' : ''}`;
   },
@@ -349,7 +361,27 @@ ${Receipt.bottom(c)}`;
     const z = (n) => `${+(n * k).toFixed(2)}pt`;
     const B = f.color;
     const sigs = f.show.signatures ? f.signatures.length : 0;
-    return Receipt.baseCss(f, z) + Receipt.templates[f.template].css(f, z, B, Receipt.darken(B), sigs);
+    return Receipt.baseCss(f, z) + Receipt.templates[f.template].css(f, z, B, Receipt.darken(B), sigs) + Receipt.sigCss(f, z, sigs);
+  },
+
+  // Where the signature lines go (Settings → Receipt format → Signatures → Position). Same for every template.
+  sigCss(f, z, n) {
+    const [, ms, mb, fb] = Receipt.MARGINS[f.margins];
+    const footer = f.show.footer && f.footer;
+    const row = `grid-template-columns: repeat(${Math.max(n, 1)}, minmax(0, 1fr)); column-gap: ${n > 4 ? 16 : 26}px;`;
+    return `
+.sigs { align-items: end; }
+.sigs.pos-row { ${row} }
+.sigs.pos-two, .sigs.pos-excel { grid-template-columns: 1fr 1fr; }
+.sigs.pos-excel .s:nth-child(n+3) { grid-column: 2; }
+.sigs.pos-left, .sigs.pos-right { grid-template-columns: 48%; row-gap: 26px; }
+.sigs.pos-right { justify-content: end; }
+.sigblock.pinned { position: absolute; left: ${ms}mm; right: ${ms}mm; bottom: ${footer ? `calc(${fb}mm + 26px)` : `${mb}mm`}; }
+.sigblock.pinned .sigs { ${row} margin-top: 0; }
+.nm { font-size: ${z(9)}; font-weight: 400; margin-bottom: 2px; text-align: left; }
+.nm b { font-weight: 700; }
+.nm .blank { display: inline-block; width: 62%; height: 1.1em; border-bottom: 1px solid currentColor; vertical-align: bottom; }
+`;
   },
 
   // inv: invoice from getWeek(); week: week row; products: list; label: 'ORIGINAL' | 'COPY'
@@ -371,27 +403,38 @@ ${Receipt.templates[c.f.template].page(c)}
       var tds = sh.querySelectorAll('table.items td');
       if (!tds.length) continue;
       var foot = sh.querySelector('footer');
-      var limit = foot ? foot.offsetTop - 6 : sh.clientHeight - parseFloat(win.getComputedStyle(sh).paddingBottom);
+      var pin = sh.querySelector('.sigblock.pinned');   // signatures pinned to the bottom: stop above them
+      var limit = pin ? pin.offsetTop - 12
+        : foot ? foot.offsetTop - 6 : sh.clientHeight - parseFloat(win.getComputedStyle(sh).paddingBottom);
       var bottom = function () {
         var b = 0;
         for (var i = 0; i < sh.children.length; i++) {
           var el = sh.children[i];
-          if (el.tagName === 'FOOTER' || el.classList.contains('wm')) continue;
+          if (el.tagName === 'FOOTER' || el.classList.contains('wm') || el === pin) continue;
           b = Math.max(b, el.offsetTop + el.offsetHeight);
         }
         return b;
       };
       if (bottom() <= limit) continue;
       var base = parseFloat(win.getComputedStyle(tds[0]).fontSize);
-      var sigs = sh.querySelector('.sigs');
-      // [row padding in px, item text size]; from the 4th step the signature lines also move closer
-      var steps = [[4, 1], [3, 1], [2, 1], [2, 1], [1.5, 1], [1, 1], [1, 0.95], [0.5, 0.9], [0, 0.85], [0, 0.8], [0, 0.75]];
+      var sigs = pin ? null : sh.querySelector('.sigs');
+      // [row padding in px, item text size, signature spacing: 0 as designed, 1 closer, 2 tight, 3 tightest]
+      var steps = [[4, 1, 0], [3, 1, 0], [2, 1, 0], [2, 1, 1], [1.5, 1, 1], [1, 1, 1], [1, 1, 2], [0.5, 1, 2], [0.5, 1, 3],
+        [0.5, 0.95, 3], [0.5, 0.9, 3], [0, 0.85, 3], [0, 0.8, 3], [0, 0.75, 3]];
+      var lines = sigs ? sigs.querySelectorAll('.s i') : [];
+      var ack = sh.querySelector('.ack');
       for (var j = 0; j < steps.length && bottom() > limit; j++) {
         for (var t = 0; t < tds.length; t++) {
           tds[t].style.paddingTop = tds[t].style.paddingBottom = steps[j][0] + 'px';
           if (steps[j][1] !== 1) tds[t].style.fontSize = (base * steps[j][1]) + 'px';
         }
-        if (j >= 3 && sigs) { sigs.style.marginTop = '20px'; sigs.style.rowGap = '18px'; }
+        if (sigs && steps[j][2] === 1) { sigs.style.marginTop = '20px'; sigs.style.rowGap = '18px'; }
+        if (sigs && steps[j][2] >= 2) {
+          var tight = steps[j][2] === 3;
+          sigs.style.marginTop = tight ? '10px' : '14px'; sigs.style.rowGap = tight ? '4px' : '8px';
+          for (var q = 0; q < lines.length; q++) lines[q].style.height = tight ? '14px' : '20px';
+          if (tight && ack) ack.style.marginTop = '8px';
+        }
       }
     }
   },

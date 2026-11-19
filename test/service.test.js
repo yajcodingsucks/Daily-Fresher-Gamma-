@@ -331,14 +331,14 @@ test('first run saves the default receipt and statement format (the current Mode
   assert.strictEqual(f.color, '#14a9e8');
   assert.strictEqual(f.paper, 'A4');
   assert.strictEqual(f.copies, 'original_copy');
-  assert.deepStrictEqual(f.signatures, ['Driver Signature', 'Received By Cook', 'Signature', 'Signature']);
+  assert.deepStrictEqual(f.signatures.map((x) => x.label), ['Driver Signature', 'Received By Cook', 'Supervisor Signature']);
   assert.deepStrictEqual(f.columns.map((c) => c.key), ['no', 'code', 'desc', 'qty', 'uom', 'price', 'amount']);
   assert.ok(f.columns.every((c) => c.on));
 });
 
 test('old receipt settings are moved into receipt_format on first run, then removed', () => {
   const store = openNodeSqlite();
-  store.exec(schema);
+  store.exec(schema.sql);
   const old = {
     company_name: 'DAILY FRESHER LTD', customer_name: 'GAMMA CONSTRUCTION LTD', last_df: 600, last_inv: 400, last_date: '2026-11-20',
     color: '#2F7D4A', note: 'No returns.', acknowledgment: 'Received in good order.', signature_labels: ['Driver', 'Cook', 'Manager'],
@@ -350,7 +350,8 @@ test('old receipt settings are moved into receipt_format on first run, then remo
   assert.strictEqual(f.color, '#2f7d4a');
   assert.strictEqual(f.note, 'No returns.');
   assert.strictEqual(f.acknowledgment, 'Received in good order.');
-  assert.deepStrictEqual(f.signatures, ['Driver', 'Cook', 'Manager']);
+  assert.deepStrictEqual(f.signatures, [{ label: 'Driver', name: 'none' }, { label: 'Cook', name: 'none' }, { label: 'Manager', name: 'none' }]);
+  assert.strictEqual(f.sig_position, 'two');            // the old receipt had 2 signatures per row
   assert.strictEqual(f.footer, 'Thank you');
   assert.strictEqual(f.show.footer, false);
   assert.strictEqual(f.show.part_payment, false);
@@ -383,4 +384,73 @@ test('saving a receipt format checks it', () => {
   assert.deepStrictEqual(saved.columns.filter((c) => c.on).map((c) => c.key), ['amount', 'desc']);   // always shown
   const png = 'data:image/png;base64,iVBORw0KGgo=';
   assert.strictEqual(svc.saveSettings({ receipt_format: { ...saved, logo: png } }).receipt_format.logo, png);
+});
+
+// ---------- signatures & cook names ----------
+test('first run saves the default signature lines and position', () => {
+  const store = openNodeSqlite();
+  createService(store);
+  const f = settingsRows(store).receipt_format;
+  assert.deepStrictEqual(f.signatures, [
+    { label: 'Driver Signature', name: 'none' },
+    { label: 'Received By Cook', name: 'cook' },
+    { label: 'Supervisor Signature', name: 'none' },
+  ]);
+  assert.strictEqual(f.sig_position, 'row');
+});
+
+test('signature lines are checked when saved; plain text lines from older versions still work', () => {
+  const svc = fresh();
+  const f = svc.getSettings().receipt_format;
+  const saved = svc.saveSettings({ receipt_format: { ...f, sig_position: 'nowhere',
+    signatures: ['Driver', { label: 'Cook', name: 'cook' }, { label: 'Boss', name: 'weird' }] } }).receipt_format;
+  assert.deepStrictEqual(saved.signatures, [{ label: 'Driver', name: 'none' }, { label: 'Cook', name: 'cook' }, { label: 'Boss', name: 'none' }]);
+  assert.strictEqual(saved.sig_position, 'row');
+  assert.strictEqual(svc.saveSettings({ receipt_format: { ...saved, sig_position: 'bottom' } }).receipt_format.sig_position, 'bottom');
+});
+
+test('an existing database gets the dorms.cook_name column, and its dorms keep everything else', () => {
+  const store = openNodeSqlite();
+  const oldSql = schema.sql.replace(/,\s*\n\s*cook_name[^\n]*\n/, '\n');
+  assert.ok(!oldSql.includes('cook_name'));
+  store.exec(oldSql);
+  store.run("INSERT INTO settings (key, value) VALUES ('company_name', '\"DAILY FRESHER LTD\"')");
+  store.run("INSERT INTO dorms (no, name, statement_name, vehicle) VALUES (1, 'Belle-Vue', 'Belle-Vue', '9528 JU 2025')");
+  assert.ok(!store.all('PRAGMA table_info(dorms)').some((c) => c.name === 'cook_name'));
+  const svc = createService(store);
+  assert.ok(store.all('PRAGMA table_info(dorms)').some((c) => c.name === 'cook_name'));
+  const d = svc.listDorms()[0];
+  assert.strictEqual(d.cook_name, '');
+  assert.strictEqual(d.vehicle, '9528 JU 2025');
+  svc.saveDorm({ ...d, cook_name: '  Ramesh  ' });
+  assert.strictEqual(svc.listDorms()[0].cook_name, 'Ramesh');
+  const { cook_name: _drop, ...noCook } = svc.listDorms()[0];
+  svc.saveDorm({ ...noCook, vehicle: '1 AB 26' });               // saving without a cook name keeps it
+  assert.strictEqual(svc.listDorms()[0].cook_name, 'Ramesh');
+  createService(store);                                          // opening again is fine
+  assert.strictEqual(store.all('PRAGMA table_info(dorms)').filter((c) => c.name === 'cook_name').length, 1);
+});
+
+test('a printed invoice keeps the cook name it was printed with', () => {
+  const svc = fresh();
+  const dorm = svc.listDorms().find((d) => d.no === 1);
+  svc.saveDorm({ ...dorm, cook_name: 'Ramesh' });
+  const w = svc.getWeek(svc.newWeek());
+  const df = w.invoices.find((i) => i.series === 'DF' && i.dorm_no === 1);
+  const inv = w.invoices.find((i) => i.series === 'INV' && i.dorm_no === 1);
+  assert.strictEqual(df.cook_name, 'Ramesh');
+  svc.setQty(df.id, prod(svc, 'Veg-Brin').id, 5);
+  svc.markPrinted([df.id]);
+  const log = svc.getLog(w.week.id).find((c) => c.action === 'printed');
+  assert.deepStrictEqual(JSON.parse(log.detail), { cook_name: 'Ramesh' });
+  svc.saveDorm({ ...dorm, cook_name: 'Sunil' });                 // a new cook
+  let again = svc.getWeek(w.week.id);
+  assert.strictEqual(again.invoices.find((i) => i.id === df.id).cook_name, 'Ramesh');   // reprint: as printed
+  assert.strictEqual(again.invoices.find((i) => i.id === inv.id).cook_name, 'Sunil');   // not printed: the cook now
+  svc.unlockWeek(w.week.id, 'wrong quantity');                   // unlocked: will be printed again with today's cook
+  again = svc.getWeek(w.week.id);
+  assert.strictEqual(again.invoices.find((i) => i.id === df.id).cook_name, 'Sunil');
+  svc.markPrinted([df.id]);
+  svc.saveDorm({ ...dorm, cook_name: '' });
+  assert.strictEqual(svc.getWeek(w.week.id).invoices.find((i) => i.id === df.id).cook_name, 'Sunil');
 });
