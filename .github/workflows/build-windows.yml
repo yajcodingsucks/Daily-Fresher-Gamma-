@@ -1,0 +1,28 @@
+# Builds the Windows app (.exe) on GitHub, so no PC with Node.js is needed.
+# Runs on every push to main, or by hand: Actions tab -> "Build Windows app" -> Run workflow.
+# Download: open the finished run, scroll to "Artifacts", click "Daily-Fresher-Invoices-exe".
+name: Build Windows app
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm test
+      - run: npm run dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Daily-Fresher-Invoices-exe
+          path: dist/*.exe
+          retention-days: 30

@@ -1,6 +1,6 @@
 {
   "name": "daily-fresher-invoices",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Weekly DF / INV invoices, receipts and monthly statements for Daily Fresher Ltd",
   "main": "main/main.js",
   "author": "Daily Fresher Ltd",

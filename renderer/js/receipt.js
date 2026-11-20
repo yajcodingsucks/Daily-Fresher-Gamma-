@@ -12,7 +12,7 @@ const Receipt = {
     const D = Receipt.darken(B);
     return `
 @page { size: A4; margin: 0; }
-* { box-sizing: border-box; }
+* { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 body { margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 10pt; color: #1a2430; background: #fff; }
 .page { width: 210mm; height: 297mm; padding: 16mm 16mm 12mm; position: relative; page-break-after: always; overflow: hidden; }
 .page:last-child { page-break-after: auto; }
