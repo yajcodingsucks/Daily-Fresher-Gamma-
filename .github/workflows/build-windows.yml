@@ -1,12 +1,15 @@
 # Builds the Windows app (.exe) on GitHub, so no PC with Node.js is needed.
 # Runs on every push to main, or by hand: Actions tab -> "Build Windows app" -> Run workflow.
-# Download: open the finished run, scroll to "Artifacts", click "Daily-Fresher-Invoices-exe".
+# Download: https://github.com/yajcodingsucks/Daily-Fresher-Gamma-/releases/latest -> click the .exe under Assets.
 name: Build Windows app
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -26,3 +29,11 @@ jobs:
           name: Daily-Fresher-Invoices-exe
           path: dist/*.exe
           retention-days: 30
+      - name: Publish to Releases (easy download link)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION-build$GITHUB_RUN_NUMBER"
+          gh release create "$TAG" dist/*.exe --title "Daily Fresher Invoices $VERSION (build $GITHUB_RUN_NUMBER)" --notes "Download the .exe below, close the old app, and run this one. Your data stays in Documents\\Daily Fresher Invoices." --latest
